@@ -1,0 +1,1 @@
+"""WebSocket bridge package for connecting SIP calls to AI platform."""

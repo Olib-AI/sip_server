@@ -11,6 +11,9 @@ RUN apk add --no-cache \
     kamailio-jansson \
     kamailio-presence \
     kamailio-postgres \
+    kamailio-extras \
+    kamailio-utils \
+    kamailio-http_async \
     python3 \
     py3-pip \
     postgresql-client \
@@ -42,9 +45,20 @@ RUN mkdir -p /etc/kamailio \
 # Set working directory
 WORKDIR /app
 
+# Install build dependencies for Python packages, then remove them
+RUN apk add --no-cache --virtual .build-deps \
+    gcc \
+    musl-dev \
+    linux-headers \
+    g++ \
+    make
+
 # Copy Python requirements and install
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+
+# Remove build dependencies to reduce image size
+RUN apk del .build-deps
 
 # Copy application code
 COPY src/ ./src/
@@ -63,7 +77,7 @@ RUN echo '[supervisord]' > /etc/supervisord.conf && \
     echo 'loglevel=info' >> /etc/supervisord.conf && \
     echo '' >> /etc/supervisord.conf && \
     echo '[program:kamailio]' >> /etc/supervisord.conf && \
-    echo 'command=/usr/sbin/kamailio -DD -E -e -m 256 -M 32' >> /etc/supervisord.conf && \
+    echo 'command=/usr/sbin/kamailio -DD -E -e -m 256 -M 32 -f /etc/kamailio/kamailio.cfg' >> /etc/supervisord.conf && \
     echo 'autostart=true' >> /etc/supervisord.conf && \
     echo 'autorestart=true' >> /etc/supervisord.conf && \
     echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
@@ -72,7 +86,7 @@ RUN echo '[supervisord]' > /etc/supervisord.conf && \
     echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
     echo '' >> /etc/supervisord.conf && \
     echo '[program:websocket-bridge]' >> /etc/supervisord.conf && \
-    echo 'command=python3 src/websocket/bridge.py' >> /etc/supervisord.conf && \
+    echo 'command=python3 -m src.websocket.bridge' >> /etc/supervisord.conf && \
     echo 'directory=/app' >> /etc/supervisord.conf && \
     echo 'autostart=true' >> /etc/supervisord.conf && \
     echo 'autorestart=true' >> /etc/supervisord.conf && \

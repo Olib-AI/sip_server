@@ -15,7 +15,7 @@ class AudioCodec:
         self.sample_rate = sample_rate
         self.channels = channels
         self.frame_size_ms = 20  # Standard 20ms frames
-        self.frame_size_samples = int(sample_rate * frame_size_ms / 1000)
+        self.frame_size_samples = int(sample_rate * self.frame_size_ms / 1000)
         self.frame_size_bytes = self.frame_size_samples * 2  # 16-bit PCM
         
     def encode(self, pcm_data: bytes) -> bytes:

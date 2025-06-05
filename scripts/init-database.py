@@ -100,6 +100,30 @@ async def create_database_schema(database_url: str):
             );
         """)
         
+        # Dispatcher table for SIP trunk management
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS dispatcher (
+                id SERIAL PRIMARY KEY NOT NULL,
+                setid INTEGER DEFAULT 0 NOT NULL,
+                destination VARCHAR(192) DEFAULT '' NOT NULL,
+                flags INTEGER DEFAULT 0 NOT NULL,
+                priority INTEGER DEFAULT 0 NOT NULL,
+                attrs VARCHAR(128) DEFAULT '' NOT NULL,
+                description VARCHAR(64) DEFAULT '' NOT NULL
+            );
+        """)
+        
+        # Dialog variables table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS dialog_vars (
+                id SERIAL PRIMARY KEY NOT NULL,
+                hash_entry INTEGER NOT NULL,
+                hash_id INTEGER NOT NULL,
+                dialog_key VARCHAR(128) NOT NULL,
+                dialog_value VARCHAR(512) NOT NULL
+            );
+        """)
+        
         # Call detail records for our application
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS call_records (
@@ -228,6 +252,8 @@ async def create_database_schema(database_url: str):
             ('subscriber', 7),
             ('location', 9),
             ('dialog', 7),
+            ('dialog_vars', 1),
+            ('dispatcher', 4),
             ('call_records', 1),
             ('sms_records', 1),
             ('registered_numbers', 1),

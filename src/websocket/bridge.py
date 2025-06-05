@@ -19,8 +19,8 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from audio.codecs import AudioProcessor
-from audio.rtp import RTPManager, RTPSession, RTPStatistics
+from ..audio.codecs import AudioProcessor
+from ..audio.rtp import RTPManager, RTPSession, RTPStatistics
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +333,7 @@ class WebSocketBridge:
 
 
 # Import handlers mixin
-from bridge_handlers import BridgeHandlers
+from .bridge_handlers import BridgeHandlers
 
 # Make WebSocketBridge inherit from BridgeHandlers
 class AdvancedWebSocketBridge(WebSocketBridge, BridgeHandlers):
