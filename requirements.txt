@@ -14,3 +14,7 @@ pytest-asyncio
 pytest-mock
 httpx
 aiohttp
+python-jose[cryptography]
+passlib[bcrypt]
+psutil
+aiofiles

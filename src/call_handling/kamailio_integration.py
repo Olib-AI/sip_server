@@ -199,6 +199,61 @@ class KamailioIntegration:
             logger.error(f"Error resuming call: {e}")
             return False
     
+    async def handle_message(self, sip_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle incoming SIP MESSAGE (SMS) from Kamailio."""
+        try:
+            logger.info(f"Processing SIP MESSAGE: {sip_data}")
+            
+            # Check if this is an SMS message
+            content_type = sip_data.get("content_type", "")
+            if not content_type.startswith("text/"):
+                return {"action": "reject", "code": 415, "reason": "Unsupported Media Type"}
+            
+            # Extract message data
+            message_data = self._extract_message_data(sip_data)
+            
+            # Forward to SMS manager if available
+            if hasattr(self.call_manager, 'sms_manager') and self.call_manager.sms_manager:
+                await self.call_manager.sms_manager.receive_sms(message_data)
+                return {"action": "ok", "code": 200, "reason": "Message processed"}
+            else:
+                logger.warning("No SMS manager available to handle message")
+                return {"action": "reject", "code": 503, "reason": "Service Unavailable"}
+                
+        except Exception as e:
+            logger.error(f"Error handling MESSAGE: {e}")
+            return {"action": "error", "code": 500, "reason": "Internal Server Error"}
+    
+    async def send_sip_message(self, message_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Send SMS via SIP MESSAGE method through Kamailio."""
+        try:
+            logger.info(f"Sending SIP MESSAGE: {message_data}")
+            
+            # Prepare MESSAGE request
+            request_data = {
+                "method": "MESSAGE",
+                "request_uri": message_data["to_uri"],
+                "from_uri": message_data["from_uri"],
+                "body": message_data["body"],
+                "content_type": message_data.get("content_type", "text/plain; charset=utf-8"),
+                "headers": message_data.get("headers", {})
+            }
+            
+            # Send via Kamailio RPC
+            response = await self._send_message_via_rpc(request_data)
+            
+            if response.get("success"):
+                logger.info(f"SMS sent successfully via SIP MESSAGE")
+                return {"success": True, "message_id": response.get("message_id")}
+            else:
+                error_msg = response.get("error", "Failed to send message")
+                logger.error(f"Failed to send SMS: {error_msg}")
+                return {"success": False, "error": error_msg}
+                
+        except Exception as e:
+            logger.error(f"Error sending SIP MESSAGE: {e}")
+            return {"success": False, "error": str(e)}
+    
     async def send_dtmf(self, call_id: str, digit: str) -> bool:
         """Send DTMF digit via Kamailio."""
         try:
@@ -389,6 +444,35 @@ class KamailioIntegration:
             
         except Exception as e:
             logger.error(f"Error sending DTMF via RPC: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def _extract_message_data(self, sip_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract SMS data from SIP MESSAGE."""
+        return {
+            "from_uri": sip_data.get("from_uri", ""),
+            "to_uri": sip_data.get("to_uri", ""),
+            "body": sip_data.get("body", ""),
+            "content_type": sip_data.get("content_type", "text/plain"),
+            "call_id": sip_data.get("call_id", ""),
+            "headers": sip_data.get("headers", {})
+        }
+    
+    async def _send_message_via_rpc(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Send MESSAGE via RPC."""
+        try:
+            # Use UAC module to send MESSAGE
+            response = await self._kamailio_rpc_call("uac.req_send", [
+                request_data["method"],
+                request_data["request_uri"],
+                request_data["from_uri"],
+                request_data["body"],
+                json.dumps(request_data["headers"])
+            ])
+            
+            return {"success": bool(response), "message_id": str(response)}
+            
+        except Exception as e:
+            logger.error(f"Error sending MESSAGE via RPC: {e}")
             return {"success": False, "error": str(e)}
     
     async def _kamailio_rpc_call(self, method: str, params: List[Any] = None) -> Any:

@@ -1,0 +1,48 @@
+# Docker Compose configuration for testing
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-kamailio}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-kamailiopw}
+      POSTGRES_DB: ${DB_NAME:-kamailio_test}
+    ports:
+      - "5433:5432"
+    networks:
+      - sip-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kamailio"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  sip-server-test:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.test
+    environment:
+      # Override for test environment
+      DB_HOST: postgres
+      DB_NAME: kamailio_test
+    ports:
+      - "5062:5060/udp"
+      - "5062:5060/tcp"
+      - "8082:8080"
+      - "8083:8081"
+    volumes:
+      - ./logs:/var/log
+      - ./config:/app/config:ro
+    networks:
+      - sip-test-network
+    command: ["python3", "-m", "pytest", "/app/src/tests/", "-v", "--tb=short"]
+
+networks:
+  sip-test-network:
+    driver: bridge
+
+volumes:
+  test_postgres_data:

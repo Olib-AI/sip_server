@@ -15,6 +15,9 @@ from ..dtmf.dtmf_detector import DTMFDetector, DTMFEvent
 from ..dtmf.dtmf_processor import DTMFProcessor
 from ..dtmf.music_on_hold import MusicOnHoldManager
 from ..dtmf.ivr_manager import IVRManager
+from ..utils.config import get_config
+from ..sms.sms_manager import SMSManager
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +315,193 @@ class CallRouter:
         return {"action": "accept"}
 
 
+class KamailioStateSynchronizer:
+    """Synchronizes call states with Kamailio SIP server."""
+    
+    def __init__(self, kamailio_rpc_url: Optional[str] = None):
+        config = get_config()
+        self.kamailio_rpc_url = kamailio_rpc_url or f"http://{config.sip.host}:{config.sip.port}/jsonrpc"
+        self.pending_updates: Dict[str, Dict] = {}
+        self.sync_interval = 5  # seconds
+        self.running = False
+        
+    async def start(self):
+        """Start synchronization loop."""
+        self.running = True
+        asyncio.create_task(self._sync_loop())
+        logger.info("Kamailio state synchronizer started")
+    
+    async def stop(self):
+        """Stop synchronization."""
+        self.running = False
+        logger.info("Kamailio state synchronizer stopped")
+    
+    async def notify_state_change(self, call_session, old_state: CallState, new_state: CallState):
+        """Notify Kamailio of call state change."""
+        try:
+            # Map our call states to Kamailio dialog states
+            kamailio_state = self._map_to_kamailio_state(new_state)
+            
+            if kamailio_state:
+                # Queue update for batch processing
+                self.pending_updates[call_session.call_id] = {
+                    "call_id": call_session.call_id,
+                    "sip_call_id": call_session.sip_call_id,
+                    "state": kamailio_state,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "from_number": call_session.caller.number,
+                    "to_number": call_session.callee.number
+                }
+                
+                # For critical state changes, sync immediately
+                if new_state in [CallState.CONNECTED, CallState.COMPLETED, CallState.FAILED]:
+                    await self._sync_immediate(call_session.call_id)
+                    
+        except Exception as e:
+            logger.error(f"Error notifying Kamailio state change: {e}")
+    
+    async def notify_call_creation(self, call_session):
+        """Notify Kamailio of new call creation."""
+        try:
+            await self._send_kamailio_request("dlg.profile_set", [
+                call_session.sip_call_id,
+                "call_manager_id",
+                call_session.call_id
+            ])
+            
+            await self._send_kamailio_request("dlg.profile_set", [
+                call_session.sip_call_id,
+                "ai_session_id", 
+                call_session.ai_session_id or ""
+            ])
+            
+        except Exception as e:
+            logger.error(f"Error notifying Kamailio call creation: {e}")
+    
+    async def notify_call_completion(self, call_session):
+        """Notify Kamailio of call completion."""
+        try:
+            # Update call statistics
+            await self._send_kamailio_request("stats.set_stat", [
+                "call_manager.completed_calls",
+                1
+            ])
+            
+            # Clean up dialog profiles
+            if call_session.sip_call_id:
+                await self._send_kamailio_request("dlg.profile_unset", [
+                    call_session.sip_call_id,
+                    "call_manager_id"
+                ])
+                
+        except Exception as e:
+            logger.error(f"Error notifying Kamailio call completion: {e}")
+    
+    async def get_kamailio_dialog_info(self, sip_call_id: str) -> Optional[Dict]:
+        """Get dialog information from Kamailio."""
+        try:
+            result = await self._send_kamailio_request("dlg.list", [])
+            
+            if result and "result" in result:
+                dialogs = result["result"]
+                for dialog in dialogs:
+                    if dialog.get("callid") == sip_call_id:
+                        return dialog
+                        
+        except Exception as e:
+            logger.error(f"Error getting Kamailio dialog info: {e}")
+        
+        return None
+    
+    async def _sync_loop(self):
+        """Main synchronization loop."""
+        while self.running:
+            try:
+                if self.pending_updates:
+                    # Process pending updates in batch
+                    updates = list(self.pending_updates.values())
+                    self.pending_updates.clear()
+                    
+                    for update in updates:
+                        await self._sync_call_state(update)
+                
+                await asyncio.sleep(self.sync_interval)
+                
+            except Exception as e:
+                logger.error(f"Error in sync loop: {e}")
+                await asyncio.sleep(self.sync_interval)
+    
+    async def _sync_immediate(self, call_id: str):
+        """Sync specific call state immediately."""
+        update = self.pending_updates.pop(call_id, None)
+        if update:
+            await self._sync_call_state(update)
+    
+    async def _sync_call_state(self, update: Dict):
+        """Sync call state to Kamailio."""
+        try:
+            # Update dialog state in Kamailio
+            if update.get("sip_call_id"):
+                await self._send_kamailio_request("dlg.profile_set", [
+                    update["sip_call_id"],
+                    "call_state",
+                    update["state"]
+                ])
+                
+                await self._send_kamailio_request("dlg.profile_set", [
+                    update["sip_call_id"],
+                    "last_update",
+                    update["timestamp"]
+                ])
+                
+        except Exception as e:
+            logger.error(f"Error syncing call state: {e}")
+    
+    async def _send_kamailio_request(self, method: str, params: List = None) -> Optional[Dict]:
+        """Send RPC request to Kamailio."""
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": str(uuid.uuid4()),
+                "method": method,
+                "params": params or []
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.kamailio_rpc_url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        logger.warning(f"Kamailio RPC failed: HTTP {response.status}")
+                        
+        except Exception as e:
+            logger.error(f"Kamailio RPC error: {e}")
+        
+        return None
+    
+    def _map_to_kamailio_state(self, call_state: CallState) -> Optional[str]:
+        """Map CallState to Kamailio dialog state."""
+        mapping = {
+            CallState.INITIALIZING: "early",
+            CallState.RINGING: "early", 
+            CallState.CONNECTING: "early",
+            CallState.CONNECTED: "confirmed",
+            CallState.ON_HOLD: "confirmed",
+            CallState.TRANSFERRING: "confirmed",
+            CallState.RECORDING: "confirmed",
+            CallState.COMPLETED: "terminated",
+            CallState.FAILED: "terminated",
+            CallState.CANCELLED: "terminated",
+            CallState.BUSY: "terminated",
+            CallState.NO_ANSWER: "terminated"
+        }
+        return mapping.get(call_state)
+
+
 class CallManager:
     """Main call management system."""
     
@@ -324,11 +514,17 @@ class CallManager:
         self.call_queues: Dict[str, CallQueue] = defaultdict(lambda: CallQueue())
         self.call_router = CallRouter()
         
+        # State synchronization
+        self.kamailio_sync = KamailioStateSynchronizer()
+        
         # DTMF and Interactive Features
         self.dtmf_detector = DTMFDetector(enable_rfc2833=True, enable_inband=True)
         self.dtmf_processor = DTMFProcessor(ai_websocket_manager, self)
         self.music_on_hold = MusicOnHoldManager(self)
         self.ivr_manager = IVRManager(self, dtmf_processor=self.dtmf_processor)
+        
+        # SMS Management
+        self.sms_manager = SMSManager(ai_websocket_manager=ai_websocket_manager)
         
         # Connect DTMF detector to processor
         self.dtmf_detector.add_event_handler(self._handle_dtmf_event)
@@ -345,6 +541,51 @@ class CallManager:
         # Call limits per number
         self.concurrent_limits: Dict[str, int] = {}
         self.number_call_counts: Dict[str, int] = defaultdict(int)
+        
+        # Running state
+        self.is_running = False
+    
+    async def start(self):
+        """Start the call manager and all sub-components."""
+        if self.is_running:
+            return
+            
+        self.is_running = True
+        
+        # Start synchronizer
+        await self.kamailio_sync.start()
+        
+        # Start DTMF components
+        await self.dtmf_processor.start()
+        await self.music_on_hold.start()
+        await self.ivr_manager.start()
+        
+        logger.info("Call manager started successfully")
+    
+    async def stop(self):
+        """Stop the call manager and cleanup."""
+        if not self.is_running:
+            return
+            
+        self.is_running = False
+        
+        # Stop synchronizer
+        await self.kamailio_sync.stop()
+        
+        # Stop DTMF components
+        await self.dtmf_processor.stop()
+        await self.music_on_hold.stop()
+        await self.ivr_manager.stop()
+        
+        # Stop SMS manager
+        await self.sms_manager.stop_processing()
+        
+        # Complete any active calls
+        for call_session in list(self.active_calls.values()):
+            await self.update_call_state(call_session.call_id, CallState.CANCELLED, 
+                                        {"hangup_reason": "system_shutdown"})
+        
+        logger.info("Call manager stopped")
         
     async def handle_incoming_call(self, sip_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle incoming SIP call."""
@@ -483,6 +724,9 @@ class CallManager:
             call_session.custom_data.update(metadata)
         
         logger.info(f"Call {call_id} state: {old_state.value} -> {new_state.value}")
+        
+        # Synchronize with Kamailio
+        await self.kamailio_sync.notify_state_change(call_session, old_state, new_state)
         
         # Emit state change event
         await self._emit_event("call_state_changed", call_session, old_state, new_state)
@@ -725,6 +969,9 @@ class CallManager:
         call_session.state = CallState.RINGING
         call_session.ring_start = datetime.utcnow()
         
+        # Notify Kamailio about call creation
+        await self.kamailio_sync.notify_call_creation(call_session)
+        
         await self._emit_event("call_accepted", call_session)
         
         return {
@@ -790,6 +1037,9 @@ class CallManager:
         caller_number = call_session.caller.number
         if self.number_call_counts[caller_number] > 0:
             self.number_call_counts[caller_number] -= 1
+        
+        # Notify Kamailio about call completion  
+        await self.kamailio_sync.notify_call_completion(call_session)
         
         # Emit completion event
         await self._emit_event("call_completed", call_session)

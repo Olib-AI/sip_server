@@ -11,6 +11,8 @@ import uuid
 from .call_manager import CallManager, CallSession, CallState, CallDirection
 from ..audio.rtp import RTPManager
 from ..audio.codecs import AudioProcessor
+from ..utils.config import get_config
+from ..utils.auth import WebSocketAuthenticator
 
 logger = logging.getLogger(__name__)
 
@@ -18,20 +20,24 @@ logger = logging.getLogger(__name__)
 class WebSocketCallBridge:
     """Bridge between SIP call manager and AI platform WebSocket."""
     
-    def __init__(self, call_manager: CallManager, ai_websocket_url: str = "ws://127.0.0.1:8081/ws", port: int = 8081):
+    def __init__(self, call_manager: CallManager, ai_websocket_url: Optional[str] = None, port: Optional[int] = None):
+        config = get_config()
         self.call_manager = call_manager
-        self.ai_websocket_url = ai_websocket_url
-        self.port = port
-        self.rtp_manager = RTPManager()
+        self.ai_websocket_url = ai_websocket_url or config.websocket.ai_platform_url
+        self.port = port or config.websocket.port
+        self.rtp_manager = RTPManager((config.audio.rtp_port_start, config.audio.rtp_port_end))
         self.audio_processor = AudioProcessor()
+        self.authenticator = WebSocketAuthenticator()
         
         # Active WebSocket connections per call
         self.active_connections: Dict[str, websockets.WebSocketServerProtocol] = {}
         self.call_to_conversation: Dict[str, str] = {}  # call_id -> conversation_id
         self.conversation_to_call: Dict[str, str] = {}  # conversation_id -> call_id
+        self.connection_auth: Dict[str, Dict] = {}  # connection_id -> user_info
         
         # Message handlers
         self.message_handlers: Dict[str, Callable] = {
+            "auth": self._handle_auth_message,
             "audio": self._handle_audio_message,
             "call_control": self._handle_call_control,
             "dtmf": self._handle_dtmf_message,
@@ -101,18 +107,63 @@ class WebSocketCallBridge:
         """Handle incoming WebSocket connection."""
         conversation_id = None
         call_id = None
+        connection_id = str(uuid.uuid4())
+        is_authenticated = False
         
         try:
             async for message in websocket:
                 data = json.loads(message)
                 message_type = data.get("type")
                 
+                # Require authentication first
+                if not is_authenticated and message_type != "auth":
+                    await self._send_message(websocket, {
+                        "type": "error",
+                        "error": "authentication_required",
+                        "message": "Please authenticate first"
+                    })
+                    continue
+                
+                # Handle authentication
+                if message_type == "auth":
+                    try:
+                        token = data.get("token")
+                        user_info = self.authenticator.verify_websocket_token(token)
+                        self.connection_auth[connection_id] = user_info
+                        is_authenticated = True
+                        
+                        await self._send_message(websocket, {
+                            "type": "auth_success",
+                            "user_id": user_info.get("user_id"),
+                            "username": user_info.get("username")
+                        })
+                        logger.info(f"WebSocket authenticated: {user_info.get('username')}")
+                        continue
+                        
+                    except ValueError as e:
+                        await self._send_message(websocket, {
+                            "type": "auth_error",
+                            "error": str(e)
+                        })
+                        await websocket.close()
+                        return
+                
                 # Handle connection setup
-                if message_type == "connection_init":
+                elif message_type == "connection_init":
                     conversation_id = data.get("conversation_id")
                     call_id = data.get("call_id")
                     
                     if conversation_id and call_id:
+                        # Verify user has permission for this call
+                        user_info = self.connection_auth.get(connection_id)
+                        if not self.authenticator.verify_call_permissions(user_info, call_id):
+                            await self._send_message(websocket, {
+                                "type": "error",
+                                "error": "permission_denied",
+                                "message": "No permission for this call"
+                            })
+                            continue
+                        
                         self.active_connections[call_id] = websocket
                         self.call_to_conversation[call_id] = conversation_id
                         self.conversation_to_call[conversation_id] = call_id
@@ -124,7 +175,8 @@ class WebSocketCallBridge:
                             "type": "connection_ack",
                             "call_id": call_id,
                             "conversation_id": conversation_id,
-                            "status": "connected"
+                            "status": "connected",
+                            "user": user_info.get("username")
                         })
                         
                         # Start RTP session for this call
@@ -141,6 +193,9 @@ class WebSocketCallBridge:
             logger.info(f"WebSocket connection closed for call {call_id}")
         except Exception as e:
             logger.error(f"Error in WebSocket handler: {e}")
+        finally:
+            # Clean up authentication info
+            self.connection_auth.pop(connection_id, None)
     
     async def _cleanup_websocket_connection(self, websocket):
         """Clean up WebSocket connection."""
@@ -217,12 +272,17 @@ class WebSocketCallBridge:
                     "call_id": call_id,
                     "audio_data": pcm_data.hex(),  # Hex encode for JSON
                     "format": "PCM",
-                    "sample_rate": 8000,
+                    "sample_rate": get_config().audio.sample_rate,
                     "channels": 1
                 })
             
         except Exception as e:
             logger.error(f"Error forwarding audio for call {call_id}: {e}")
+    
+    async def _handle_auth_message(self, websocket, data: Dict[str, Any]):
+        """Handle authentication messages - already handled in main loop."""
+        # This is handled in the main connection loop
+        pass
     
     async def _handle_audio_message(self, websocket, data: Dict[str, Any]):
         """Handle audio message from AI platform."""

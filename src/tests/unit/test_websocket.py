@@ -2,11 +2,22 @@
 import pytest
 import asyncio
 import json
+import os
 import websockets
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from ..websocket.bridge import WebSocketBridge, CallInfo, CallState, MessageType, AudioProcessor
-from ..utils.config import get_config
+# Set test environment
+os.environ.update({
+    'DB_HOST': 'localhost',
+    'API_PORT': '8080',
+    'WEBSOCKET_PORT': '8081',
+    'JWT_SECRET_KEY': 'test-secret-key',
+    'AUDIO_SAMPLE_RATE': '8000'
+})
+
+from ...websocket.bridge import WebSocketBridge, CallState, MessageType
+from ...audio.codecs import AudioProcessor
+from ...utils.config import get_config
 
 
 class TestAudioProcessor:

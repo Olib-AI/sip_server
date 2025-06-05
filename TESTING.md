@@ -1,220 +1,225 @@
-# 🧪 Comprehensive Testing Guide for Olib AI SIP Server
+# 🧪 Testing Guide for Olib AI SIP Server
 
-This guide covers the complete testing framework for the SIP server, including deployment testing, functional testing, performance testing, and quality assurance.
+This guide covers the complete testing framework for the SIP server with 100% two-way AI integration.
 
 ## 📋 Table of Contents
 
-1. [Testing Framework Overview](#testing-framework-overview)
-2. [Prerequisites](#prerequisites)
-3. [Quick Testing Setup](#quick-testing-setup)
-4. [Unit Testing](#unit-testing)
-5. [Integration Testing](#integration-testing)
-6. [Load Testing](#load-testing)
-7. [End-to-End Testing](#end-to-end-testing)
-8. [Performance & Quality Testing](#performance--quality-testing)
-9. [Deployment Testing](#deployment-testing)
-10. [Monitoring & Debugging](#monitoring--debugging)
-11. [Troubleshooting](#troubleshooting)
-12. [CI/CD Integration](#cicd-integration)
+1. [Quick Start Testing](#quick-start-testing)
+2. [Test Environment Setup](#test-environment-setup)
+3. [Configuration Testing](#configuration-testing)
+4. [Integration Testing](#integration-testing)
+5. [Docker Compose Testing](#docker-compose-testing)
+6. [Component Testing](#component-testing)
+7. [API Testing](#api-testing)
+8. [WebSocket Testing](#websocket-testing)
+9. [Performance Testing](#performance-testing)
+10. [Production Testing](#production-testing)
 
 ## 🔧 Testing Framework Overview
 
-The SIP server includes a comprehensive testing framework with multiple layers:
+The SIP server includes a comprehensive testing framework for the complete AI integration:
 
-### **Test Categories**
+### **Implemented Test Components**
 
-| Test Type | Purpose | Files | Coverage |
-|-----------|---------|--------|----------|
-| **Unit Tests** | Component isolation testing | `tests/unit/` | API endpoints, business logic |
-| **Integration Tests** | Component interaction testing | `tests/integration/` | SIP flows, WebSocket bridge |
-| **Load Tests** | Performance under load | `tests/load/` | HTTP, SIP, WebSocket |
-| **Quality Tests** | Audio/call quality validation | `tests/quality/` | MOS scoring, codec testing |
-| **DTMF Tests** | DTMF functionality validation | `tests/dtmf/` | Detection, IVR, performance |
-| **SMS Tests** | SMS system validation | `tests/sms/` | SIP MESSAGE, queuing |
-| **E2E Tests** | Complete workflow testing | `tests/e2e/` | Full call scenarios |
+| Test Type | Purpose | Location | Status |
+|-----------|---------|----------|--------|
+| **Configuration Tests** | Environment & config validation | `src/tests/test_config.py` | ✅ Complete |
+| **Integration Tests** | Component interaction testing | `src/tests/test_integration.py` | ✅ Complete |
+| **WebSocket Tests** | Audio & bridge functionality | `src/tests/unit/test_websocket.py` | ✅ Complete |
+| **Docker Tests** | Containerized testing | `docker-compose.test.yml` | ✅ Complete |
+| **API Tests** | REST API endpoints | `src/tests/unit/test_api_*.py` | ✅ Implemented |
+| **Load Tests** | Performance validation | `tests/load/` | ✅ Available |
 
-### **Test Execution Modes**
+### **Test Environment Types**
 
-- **Development Testing**: Quick validation during development
-- **CI/CD Testing**: Automated testing in pipelines  
-- **Load Testing**: Performance benchmarking
-- **Production Testing**: Live system validation
+- **Local Development**: Direct Python testing with pytest
+- **Docker Compose**: Containerized test environment with database
+- **Kubernetes**: Production-like testing with MicroK8s
+- **CI/CD**: Automated pipeline testing
 
-## 📚 Prerequisites
+## ⚡ Quick Start Testing
 
-### **Required Software**
+### **1. Immediate Validation**
 ```bash
-# Python dependencies
-pip install -r requirements.txt
+# Quick configuration test (validates core setup)
+python3 -m pytest src/tests/test_config.py::TestConfigManager::test_default_config_values -v
 
-# Additional testing tools
-pip install pytest pytest-asyncio pytest-cov pytest-html
-pip install aiohttp websockets numpy matplotlib
+# Quick integration test
+python3 -m pytest src/tests/test_integration.py::TestConfigurationIntegration::test_config_consistency -v
 
-# Optional: SIP testing tools
-sudo apt-get install sipp  # Linux
-brew install sipp          # macOS
+# Test Docker environment
+docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ```
 
-### **Development Environment**
-- **Python**: 3.11 or higher
-- **Docker**: For containerized testing
-- **Kubernetes**: MicroK8s or standard cluster
-- **SIP Clients**: Linphone, X-Lite, or similar
-
-### **Test Environment Setup**
+### **2. Complete Test Suite**
 ```bash
-# Clone and setup
-git clone <repository-url>
-cd olib-app/sip_server
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Initialize test database (if needed)
-python scripts/init-database.py
-
-# Verify setup
-python -m pytest tests/unit/test_api_calls.py::TestCallsAPI::test_health_check -v
-```
-
-## ⚡ Quick Testing Setup
-
-### **1. Run All Tests**
-```bash
-# Complete test suite
-python -m pytest tests/ -v --tb=short
-
-# With coverage report
-python -m pytest tests/ --cov=src --cov-report=html
-
-# Specific test categories
-python -m pytest tests/unit/ -v          # Unit tests only
-python -m pytest tests/integration/ -v   # Integration tests only
-```
-
-### **2. Quick Health Check**
-```bash
-# Test API health (requires running server)
-curl http://localhost:8000/health
-
-# Test SIP connectivity
-python tests/load/sip_protocol_load_test.py --test options --count 1
-```
-
-### **3. Quick Load Test**
-```bash
-# Basic load test (lightweight)
-python tests/load/master_load_test.py --quick
-
-# API-only load test
-python tests/load/load_test_comprehensive.py --test health --rps 50 --duration 30
-```
-
-## 🔬 Unit Testing
-
-### **API Endpoint Testing**
-
-```bash
-# Test all API endpoints
-python -m pytest tests/unit/test_api_calls.py -v
-python -m pytest tests/unit/test_api_sms.py -v
-
-# Test specific functionality
-python -m pytest tests/unit/test_api_calls.py::TestCallsAPI::test_initiate_call_success -v
-
-# Test with different configurations
-python -m pytest tests/unit/ --auth-token="test-token" -v
-```
-
-**Example: Testing Call Initiation**
-```python
-# Run from tests/unit/
-pytest test_api_calls.py::TestCallsAPI::test_initiate_call_success -v -s
-```
-
-### **Component Testing**
-
-```bash
-# Test DTMF components
-python -m pytest tests/dtmf/test_dtmf_functionality.py -v
-
-# Test SMS components  
-python -m pytest tests/sms/test_sms_comprehensive.py -v
+# Run all current tests
+python3 -m pytest src/tests/ -v --tb=short
 
 # Run with coverage
-python -m pytest tests/unit/ --cov=src/api --cov-report=term-missing
+python3 -m pytest src/tests/ --cov=src --cov-report=html
+
+# Test specific components
+python3 -m pytest src/tests/test_config.py -v
+python3 -m pytest src/tests/test_integration.py -v
 ```
 
-### **Mock Testing Examples**
+### **3. Docker Environment Testing**
+```bash
+# Start test environment
+docker-compose -f docker-compose.test.yml up -d
 
-The unit tests include comprehensive mocking for external dependencies:
+# Run tests in container
+docker-compose -f docker-compose.test.yml exec sip-server-test python3 -m pytest /app/src/tests/ -v
 
-- **Database Operations**: SQLAlchemy models mocked
-- **SIP Client**: Raw SIP sending mocked
-- **WebSocket Connections**: AsyncMock for real-time testing
-- **Authentication**: JWT token validation mocked
+# Clean up
+docker-compose -f docker-compose.test.yml down
+```
+
+## 🔬 Configuration Testing
+
+### **Environment Configuration Tests**
+
+```bash
+# Test configuration loading
+python3 -m pytest src/tests/test_config.py::TestConfigManager::test_default_config_values -v
+
+# Test environment variable overrides  
+python3 -m pytest src/tests/test_config.py::TestConfigManager::test_env_var_override -v
+
+# Test boolean environment parsing
+python3 -m pytest src/tests/test_config.py::TestConfigManager::test_boolean_env_vars -v
+
+# Test configuration dictionary compatibility
+python3 -m pytest src/tests/test_config.py::TestConfigManager::test_config_dict_compatibility -v
+```
+
+### **Manual Configuration Testing**
+
+```bash
+# Test configuration loading manually
+python3 -c "
+from src.utils.config import ConfigManager, get_config
+config = get_config()
+print('✅ Configuration loaded successfully')
+print(f'Database: {config.database.host}:{config.database.port}')
+print(f'API Port: {config.api.port}')
+print(f'WebSocket Port: {config.websocket.port}')
+print(f'JWT Secret: {bool(config.security.jwt_secret_key)}')
+"
+
+# Test environment variable loading
+DB_HOST=test-host python3 -c "
+from src.utils.config import get_config
+config = get_config()
+print(f'Database host override: {config.database.host}')
+"
+```
+
+### **Configuration Validation**
+
+The configuration tests validate:
+- **Default Values**: All configuration has sensible defaults
+- **Environment Overrides**: Environment variables properly override defaults
+- **Type Conversion**: Strings converted to appropriate types (int, bool, float)
+- **Dictionary Compatibility**: Backwards compatibility with dictionary access
+- **Database URL Generation**: Proper PostgreSQL connection string creation
 
 ## 🔗 Integration Testing
 
-### **SIP Integration Testing**
+### **Call Manager Integration**
 
 ```bash
-# Complete SIP workflow testing
-python -m pytest tests/integration/test_sip_integration.py -v
+# Test CallManager component integration
+python3 -m pytest src/tests/test_integration.py::TestCallManagerIntegration -v
 
-# Test specific SIP scenarios
-python -m pytest tests/integration/test_sip_integration.py::TestSIPIntegration::test_incoming_call_flow -v
+# Test call state management
+python3 -c "
+from src.call_handling.call_manager import CallManager
+from unittest.mock import AsyncMock
+manager = CallManager(max_concurrent_calls=10, ai_websocket_manager=AsyncMock())
+print('✅ CallManager initialized successfully')
+"
 ```
 
-**SIP Integration Test Coverage:**
-- Call setup and teardown
-- State transitions
-- Call routing and queuing
-- Database integration
-- Error handling
-
-### **WebSocket Bridge Testing**
+### **WebSocket Bridge Integration**
 
 ```bash
-# WebSocket integration tests
-python -m pytest tests/integration/test_websocket_bridge.py -v
+# Test WebSocket bridge initialization
+python3 -m pytest src/tests/test_integration.py::TestWebSocketIntegration::test_websocket_bridge_initialization -v
 
-# Test audio streaming
-python -m pytest tests/integration/test_websocket_bridge.py::TestWebSocketBridge::test_audio_streaming_to_ai -v
+# Manual WebSocket bridge testing
+python3 -c "
+from src.call_handling.websocket_integration import WebSocketCallBridge
+from unittest.mock import MagicMock
+bridge = WebSocketCallBridge(call_manager=MagicMock())
+print('✅ WebSocket bridge initialized successfully')
+"
 ```
 
-**WebSocket Test Coverage:**
-- Connection management
-- Audio streaming (50fps PCM)
-- DTMF forwarding
-- Call control messages
-- Error recovery
-
-### **Database Integration**
+### **Component Integration Tests**
 
 ```bash
-# Test database operations
-python -m pytest tests/integration/ -k "database" -v
+# Test configuration integration across components
+python3 -m pytest src/tests/test_integration.py::TestConfigurationIntegration::test_config_consistency -v
 
-# Test with real database (requires setup)
-DATABASE_URL=postgresql://user:pass@localhost/testdb python -m pytest tests/integration/ -v
+# Test that components use configuration correctly
+python3 -m pytest src/tests/test_integration.py::TestConfigurationIntegration::test_component_configuration_usage -v
 ```
 
-## 🚀 Load Testing
+**Integration Test Coverage:**
+- CallManager start/stop lifecycle
+- WebSocket bridge initialization  
+- Configuration consistency across components
+- Component dependency injection
+- Error handling and recovery
 
-### **Comprehensive Load Testing**
+## 🐳 Docker Compose Testing
+
+### **Complete Docker Environment Testing**
 
 ```bash
-# Master load test runner (orchestrates all components)
-python tests/load/master_load_test.py
+# Run test suite in Docker environment
+docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
 
-# Quick load test
-python tests/load/master_load_test.py --quick
+# Run with isolated test database
+docker-compose -f docker-compose.test.yml up --build
 
-# Custom configuration
-python tests/load/master_load_test.py --config tests/load/load_test_config.json
+# Check test results
+docker-compose -f docker-compose.test.yml logs sip-server-test
+
+# Clean up test environment
+docker-compose -f docker-compose.test.yml down --volumes
 ```
+
+### **Docker Test Environment Details**
+
+The `docker-compose.test.yml` provides:
+- **Isolated Test Database**: PostgreSQL with test-specific configuration
+- **Test-specific Ports**: Avoids conflicts (5062, 8082, 8083)
+- **Environment Variables**: Loaded from `.env.test`
+- **Automated Testing**: Runs pytest automatically in container
+
+**Test Environment Configuration (`.env.test`):**
+```bash
+# Database
+DB_HOST=postgres
+DB_NAME=kamailio_test
+DB_USER=kamailio
+DB_PASSWORD=kamailiopw
+
+# API ports (test-specific)
+API_PORT=8082
+WEBSOCKET_PORT=8083
+SIP_PORT=5062
+
+# Test configuration
+TESTING=true
+DEBUG=true
+LOG_LEVEL=INFO
+```
+
+## 🚀 Component Testing
 
 ### **HTTP/API Load Testing**
 

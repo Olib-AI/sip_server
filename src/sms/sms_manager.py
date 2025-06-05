@@ -12,6 +12,7 @@ import re
 
 from .sms_queue import SMSQueue, SMSQueuePriority
 from .sms_processor import SMSProcessor
+from ..utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -647,7 +648,7 @@ class SMSManager:
     
     def _get_domain(self) -> str:
         """Get SIP domain."""
-        return "sip.olib.local"  # This should be configurable
+        return get_config().sip.domain
     
     def get_statistics(self) -> Dict[str, Any]:
         """Get SMS statistics."""

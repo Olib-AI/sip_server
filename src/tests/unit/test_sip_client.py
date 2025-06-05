@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 import json
 
-from ..utils.sip_client import SIPClient
-from ..models.schemas import CallInfo, SMSInfo, CallStatus, SMSStatus
+from src.utils.sip_client import SIPClient
+from src.models.schemas import CallInfo, SMSInfo, CallStatus, SMSStatus
 
 
 @pytest.mark.asyncio

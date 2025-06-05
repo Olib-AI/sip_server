@@ -1,9 +1,90 @@
 # Deployment Guide
 
-This guide covers deploying the Olib AI SIP Server in production environments.
+This guide covers deploying the Olib AI SIP Server with complete two-way AI integration.
 
-## Prerequisites
+## Quick Start with Docker Compose
 
+### Prerequisites
+- Docker and Docker Compose installed
+- AI platform accessible via WebSocket
+- Available ports: 5060 (SIP), 8080 (API), 8081 (WebSocket)
+
+### 1. Environment Configuration
+
+Create `.env` file:
+```bash
+# Database
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=kamailio
+DB_USER=kamailio
+DB_PASSWORD=your_secure_password
+
+# API Configuration
+API_HOST=0.0.0.0
+API_PORT=8080
+
+# WebSocket Configuration
+WEBSOCKET_HOST=0.0.0.0
+WEBSOCKET_PORT=8081
+AI_PLATFORM_WS_URL=ws://your-ai-platform:8001/ws/voice
+
+# SIP Configuration
+SIP_HOST=0.0.0.0
+SIP_PORT=5060
+SIP_DOMAIN=sip.yourdomain.com
+
+# Security
+JWT_SECRET_KEY=your_jwt_secret_key_here
+JWT_ALGORITHM=HS256
+JWT_EXPIRE_MINUTES=30
+API_KEY=your_api_key_here
+
+# Audio Processing
+AUDIO_SAMPLE_RATE=8000
+AUDIO_FRAME_SIZE=160
+RTP_PORT_RANGE_START=10000
+RTP_PORT_RANGE_END=10100
+
+# Logging
+LOG_LEVEL=INFO
+DEBUG=false
+```
+
+### 2. Deploy with Docker Compose
+
+```bash
+# Clone and navigate to project
+git clone <repository-url>
+cd sip_server
+
+# Start services
+docker-compose up -d
+
+# Check status
+docker-compose ps
+
+# View logs
+docker-compose logs -f sip-server
+```
+
+### 3. Validate Deployment
+
+```bash
+# Test API health
+curl http://localhost:8080/health
+
+# Test configuration endpoint
+curl http://localhost:8080/api/config
+
+# Test WebSocket (requires authentication)
+curl -H "Authorization: Bearer your_jwt_token" \
+     http://localhost:8081/ws/test
+```
+
+## Production Kubernetes Deployment
+
+### Prerequisites
 - Kubernetes cluster with UDP load balancer support
 - PostgreSQL database (managed or self-hosted)
 - Docker registry access
@@ -127,22 +208,38 @@ spec:
           protocol: TCP
           name: websocket
         env:
-        - name: DATABASE_URL
+        - name: DB_HOST
+          value: postgres
+        - name: DB_NAME
+          value: kamailio
+        - name: DB_USER
           valueFrom:
             secretKeyRef:
               name: postgres-credentials
-              key: DATABASE_URL
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: password
         - name: JWT_SECRET_KEY
           valueFrom:
             secretKeyRef:
               name: sip-server-secrets
               key: jwt-secret
-        - name: AI_PLATFORM_URL
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sip-server-secrets
+              key: api-key
+        - name: AI_PLATFORM_WS_URL
           value: "ws://ai-platform-service:8001/ws/voice"
-        - name: KAMAILIO_SHARED_MEMORY
-          value: "512"
-        - name: KAMAILIO_PKG_MEMORY
-          value: "64"
+        - name: SIP_DOMAIN
+          value: "sip.yourdomain.com"
+        - name: AUDIO_SAMPLE_RATE
+          value: "8000"
+        - name: LOG_LEVEL
+          value: "INFO"
         resources:
           requests:
             memory: "2Gi"

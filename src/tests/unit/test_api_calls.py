@@ -1,12 +1,22 @@
 """Unit tests for call management API endpoints."""
 import pytest
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 from datetime import datetime
 
-from src.api.main import app
-from src.models.schemas import CallInfo, CallInitiate, CallTransfer
+# Set test environment variables before importing modules
+os.environ.update({
+    'DB_HOST': 'localhost',
+    'DB_PORT': '5432',
+    'API_PORT': '8080',
+    'WEBSOCKET_PORT': '8081',
+    'JWT_SECRET_KEY': 'test-secret-key',
+    'LOG_LEVEL': 'INFO'
+})
+
+from ...api.main import app
 
 
 class TestCallsAPI:
@@ -41,18 +51,18 @@ class TestCallsAPI:
     @pytest.fixture
     def sample_call_info(self):
         """Sample call information."""
-        return CallInfo(
-            call_id="test-call-123",
-            from_number="+1234567890",
-            to_number="+0987654321",
-            status="connected",
-            direction="outbound",
-            start_time=datetime.utcnow(),
-            metadata={"test": "data"}
-        )
+        return {
+            "call_id": "test-call-123",
+            "from_number": "+1234567890",
+            "to_number": "+0987654321",
+            "status": "connected",
+            "direction": "outbound",
+            "start_time": datetime.utcnow().isoformat(),
+            "metadata": {"test": "data"}
+        }
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_initiate_call_success(self, mock_sip_client, mock_auth, client, 
                                    mock_auth_headers, sample_call_initiate, sample_call_info):
         """Test successful call initiation."""
@@ -82,8 +92,8 @@ class TestCallsAPI:
         mock_client_instance.is_number_registered.assert_called_once_with("+1234567890")
         mock_client_instance.initiate_call.assert_called_once()
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_initiate_call_invalid_from_number(self, mock_sip_client, mock_auth, 
                                                client, mock_auth_headers):
         """Test call initiation with invalid from number."""
@@ -107,8 +117,8 @@ class TestCallsAPI:
         assert response.status_code == 400
         assert "From number not registered" in response.json()["detail"]
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_get_active_calls(self, mock_sip_client, mock_auth, client, 
                               mock_auth_headers, sample_call_info):
         """Test getting active calls."""
@@ -127,8 +137,8 @@ class TestCallsAPI:
         assert len(data) == 1
         assert data[0]["call_id"] == "test-call-123"
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_get_active_calls_with_pagination(self, mock_sip_client, mock_auth, 
                                               client, mock_auth_headers):
         """Test getting active calls with pagination."""
@@ -165,8 +175,8 @@ class TestCallsAPI:
         # Should start from offset 1, so first result should be call-1
         assert data[0]["call_id"] == "call-1"
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_get_call_info(self, mock_sip_client, mock_auth, client, 
                            mock_auth_headers, sample_call_info):
         """Test getting specific call information."""
@@ -184,8 +194,8 @@ class TestCallsAPI:
         data = response.json()
         assert data["call_id"] == "test-call-123"
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_get_call_info_not_found(self, mock_sip_client, mock_auth, 
                                      client, mock_auth_headers):
         """Test getting non-existent call information."""
@@ -202,8 +212,8 @@ class TestCallsAPI:
         assert response.status_code == 404
         assert "Call not found" in response.json()["detail"]
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_hangup_call(self, mock_sip_client, mock_auth, client, 
                          mock_auth_headers, sample_call_info):
         """Test hanging up a call."""
@@ -225,8 +235,8 @@ class TestCallsAPI:
         # Verify mock calls
         mock_client_instance.hangup_call.assert_called_once_with("test-call-123")
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_transfer_call(self, mock_sip_client, mock_auth, client, 
                            mock_auth_headers, sample_call_info):
         """Test transferring a call."""
@@ -261,8 +271,8 @@ class TestCallsAPI:
             blind_transfer=True
         )
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_hold_call(self, mock_sip_client, mock_auth, client, 
                        mock_auth_headers, sample_call_info):
         """Test putting a call on hold."""
@@ -281,8 +291,8 @@ class TestCallsAPI:
         data = response.json()
         assert "placed on hold" in data["message"]
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_resume_call(self, mock_sip_client, mock_auth, client, 
                          mock_auth_headers, sample_call_info):
         """Test resuming a call from hold."""
@@ -301,8 +311,8 @@ class TestCallsAPI:
         data = response.json()
         assert "resumed" in data["message"]
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_send_dtmf(self, mock_sip_client, mock_auth, client, 
                        mock_auth_headers, sample_call_info):
         """Test sending DTMF digits."""
@@ -352,8 +362,8 @@ class TestCallsAPI:
         # Assertions
         assert response.status_code == 401
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_server_error_handling(self, mock_sip_client, mock_auth, 
                                    client, mock_auth_headers):
         """Test server error handling."""
@@ -381,8 +391,8 @@ class TestCallsAPI:
         # Assertions
         assert response.status_code == 422  # Validation error
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_call_history_empty(self, mock_sip_client, mock_auth, 
                                 client, mock_auth_headers):
         """Test getting call history when empty."""
@@ -397,8 +407,8 @@ class TestCallsAPI:
         data = response.json()
         assert data == []  # Empty list for now
 
-    @patch('src.api.routes.calls.get_current_user')
-    @patch('src.api.routes.calls.SIPClient')
+    @patch('src.tests.unit.test_api_calls.get_current_user')
+    @patch('src.tests.unit.test_api_calls.CallManager')
     def test_call_operations_on_non_existent_call(self, mock_sip_client, mock_auth, 
                                                    client, mock_auth_headers):
         """Test operations on non-existent call."""

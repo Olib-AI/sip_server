@@ -1,21 +1,49 @@
 # Local Development & Debugging Guide
 
-## Development Workflow
+## Quick Start Development
 
-After making any changes to the codebase, follow this sequence:
-
+### 1. Environment Setup
 ```bash
-docker compose down
-docker compose build sip-server
-docker compose up -d
+# Copy example environment file
+cp example.env .env
+
+# Edit configuration for your environment
+vim .env
+```
+
+### 2. Development Workflow
+```bash
+# Start development environment
+docker-compose up -d
+
+# View logs in real-time
+docker-compose logs -f sip-server
+
+# Make code changes, then restart
+docker-compose restart sip-server
+
+# For major changes, rebuild
+docker-compose down
+docker-compose build sip-server
+docker-compose up -d
+```
+
+### 3. Test Environment
+```bash
+# Run test suite with Docker Compose
+docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+
+# Run tests locally (requires Python environment)
+python3 -m pytest src/tests/ -v
 ```
 
 ## Debugging Process
 
-1. **Check container status**: `docker compose ps`
-2. **View logs**: `docker compose logs -f sip-server`
-3. **Fix issues in priority order** (critical errors first)
-4. **Rebuild and test** after each fix
+1. **Check container status**: `docker-compose ps`
+2. **View logs**: `docker-compose logs -f sip-server`
+3. **Check individual components** (database, API, WebSocket)
+4. **Fix issues in priority order** (critical errors first)
+5. **Validate with tests** after each fix
 
 ## Issue Priority Guidelines
 
@@ -86,53 +114,106 @@ docker compose up -d
 
 ## Testing Commands
 
+### Health Checks
 ```bash
-# Check service health - SIP Integration API
-docker compose exec sip-server curl -f http://localhost:8080/health
+# Check all services status
+docker-compose ps
 
-# Test Kamailio config
-docker compose exec sip-server kamailio -c -f /etc/kamailio/kamailio.cfg
+# Check API health endpoint
+curl http://localhost:8080/health
 
-# Check SIP Integration server status
-docker compose exec sip-server curl -f http://localhost:8080/api/sip/statistics
+# Check WebSocket endpoint
+curl -H "Authorization: Bearer your_jwt_token" \
+     -H "Upgrade: websocket" \
+     http://localhost:8081/ws
 
-# Run all tests
-docker compose exec sip-server python3 -m pytest src/tests/ tests/ -v
-
-# Run specific test modules
-docker compose exec sip-server python3 -m pytest tests/unit/ -v
-docker compose exec sip-server python3 -m pytest tests/integration/ -v
-docker compose exec sip-server python3 -m pytest tests/e2e/ -v
-
-# Test with coverage
-docker compose exec sip-server python3 -m pytest src/tests/ tests/ --cov=src --cov-report=html
-
-# Check database connection
-docker compose exec sip-server python3 -c "
-from src.models.database import SessionLocal
-try:
-    with SessionLocal() as session:
-        session.execute('SELECT 1').fetchone()
-    print('✅ SIP Database OK')
-except Exception as e:
-    print(f'❌ SIP Database FAIL: {e}')
+# Test database connection
+docker-compose exec sip-server python3 -c "
+from src.utils.config import get_config
+from src.models.database import get_database_url
+print('Config loaded:', get_config().database.host)
+print('Database URL:', get_database_url())
 "
+```
 
-# Test module imports
-docker compose exec sip-server python3 -c "
-import sys; sys.path.insert(0, '/app')
-from src.main_integration import SIPIntegrationServer
+### API Testing
+```bash
+# Test configuration endpoint
+curl http://localhost:8080/api/config
+
+# Test call endpoints
+curl -X POST http://localhost:8080/api/calls/initiate \
+     -H "Content-Type: application/json" \
+     -d '{"from_number": "+1234567890", "to_number": "+0987654321"}'
+
+# Test SMS endpoints
+curl -X POST http://localhost:8080/api/sms/send \
+     -H "Content-Type: application/json" \
+     -d '{"from_number": "+1234567890", "to_number": "+0987654321", "message": "Test"}'
+
+# Get active calls
+curl http://localhost:8080/api/calls/active
+```
+
+### Comprehensive Test Suite
+```bash
+# Run full test suite with Docker Compose
+docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+
+# Run specific test categories
+python3 -m pytest src/tests/test_config.py -v
+python3 -m pytest src/tests/test_integration.py -v
+python3 -m pytest src/tests/unit/ -v
+
+# Run tests with coverage
+python3 -m pytest src/tests/ --cov=src --cov-report=html
+
+# Test configuration loading
+python3 -c "
+from src.utils.config import ConfigManager, get_config
+config = get_config()
+print('✅ Configuration loaded successfully')
+print(f'Database: {config.database.host}:{config.database.port}')
+print(f'API Port: {config.api.port}')
+print(f'WebSocket Port: {config.websocket.port}')
+"
+```
+
+### Component Testing
+```bash
+# Test Call Manager
+python3 -c "
 from src.call_handling.call_manager import CallManager
-from src.call_handling.websocket_integration import WebSocketCallBridge
-from src.api.sip_integration import app
-print('✅ All modules import successfully')
+from unittest.mock import AsyncMock
+manager = CallManager(max_concurrent_calls=10, ai_websocket_manager=AsyncMock())
+print('✅ CallManager initialized successfully')
 "
 
-# Check WebSocket server (should be listening on 8080)
-docker compose exec sip-server netstat -tuln | grep 8080
+# Test WebSocket Bridge
+python3 -c "
+from src.websocket.bridge import WebSocketBridge
+bridge = WebSocketBridge('ws://localhost:8081/ws')
+print('✅ WebSocketBridge initialized successfully')
+"
 
-# Test SIP endpoints
-docker compose exec sip-server curl -f http://localhost:8080/api/sip/calls/active
+# Test Audio Processor
+python3 -c "
+from src.audio.codecs import AudioProcessor
+processor = AudioProcessor()
+print('✅ AudioProcessor initialized successfully')
+"
+```
+
+### Kamailio Testing
+```bash
+# Test Kamailio configuration
+docker-compose exec sip-server kamailio -c -f /etc/kamailio/kamailio.cfg
+
+# Check Kamailio process
+docker-compose exec sip-server pgrep kamailio
+
+# Monitor SIP traffic (if needed)
+docker-compose exec sip-server tcpdump -i any port 5060 -n
 ```
 
 ## Emergency Recovery

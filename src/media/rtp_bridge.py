@@ -11,6 +11,7 @@ import threading
 import websockets
 from ..audio.codecs import AudioProcessor
 from ..audio.rtp import RTPHeader
+from ..utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +35,10 @@ class MediaSession:
 class RTPproxy:
     """Custom RTPproxy implementation that bridges SIP RTP to AI platform WebSocket."""
     
-    def __init__(self, control_socket_addr="127.0.0.1", control_port=12221):
-        self.control_addr = control_socket_addr
-        self.control_port = control_port
+    def __init__(self, control_socket_addr: Optional[str] = None, control_port: Optional[int] = None):
+        config = get_config()
+        self.control_addr = control_socket_addr or config.sip.rtp_proxy_host
+        self.control_port = control_port or config.sip.rtp_proxy_port
         self.sessions: Dict[str, MediaSession] = {}
         self.socket_pairs: Dict[int, socket.socket] = {}
         self.audio_processor = AudioProcessor()
@@ -44,9 +46,10 @@ class RTPproxy:
         self.websocket_server = None
         
         # Port range for RTP sessions
-        self.rtp_port_start = 10000
-        self.rtp_port_end = 20000
+        self.rtp_port_start = config.audio.rtp_port_start
+        self.rtp_port_end = config.audio.rtp_port_end
         self.current_port = self.rtp_port_start
+        self.websocket_port = config.websocket.port
         
     async def start(self):
         """Start the RTP bridge server."""
@@ -55,9 +58,9 @@ class RTPproxy:
         
         # Start WebSocket server for AI platform connection
         self.websocket_server = await websockets.serve(
-            self.handle_ai_websocket, "0.0.0.0", 8081
+            self.handle_ai_websocket, "0.0.0.0", self.websocket_port
         )
-        logger.info("AI platform WebSocket server started on port 8081")
+        logger.info(f"AI platform WebSocket server started on port {self.websocket_port}")
         
         # Start RTPproxy control protocol server
         control_task = asyncio.create_task(self.start_control_server())
@@ -364,7 +367,7 @@ class RTPproxy:
                 "timestamp": rtp_header.timestamp,
                 "sequence": rtp_header.sequence_number,
                 "audio_data": audio_data.hex(),  # Send as hex string
-                "sample_rate": 8000,
+                "sample_rate": get_config().audio.sample_rate,
                 "channels": 1,
                 "format": "pcm"
             }

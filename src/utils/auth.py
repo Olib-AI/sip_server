@@ -7,13 +7,15 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 import logging
+from .config import get_config
 
 logger = logging.getLogger(__name__)
 
-# Configuration
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# Get configuration
+config = get_config()
+SECRET_KEY = config.security.jwt_secret_key
+ALGORITHM = config.security.jwt_algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = config.security.jwt_expire_minutes
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -104,9 +106,8 @@ def generate_api_key() -> str:
 
 def verify_api_key(api_key: str) -> Optional[Dict]:
     """Verify an API key and return user info."""
-    # This would typically check against database
-    # For now, we'll accept a specific test key
-    if api_key == "test-api-key-change-in-production":
+    # Check against configured API key
+    if api_key == config.security.api_key:
         return {
             "username": "api_user",
             "user_id": 1,
@@ -129,3 +130,80 @@ def verify_token(token: str) -> Dict:
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+class WebSocketAuthenticator:
+    """WebSocket authentication handler."""
+    
+    def __init__(self):
+        self.config = get_config()
+    
+    def verify_websocket_token(self, token: str) -> Dict:
+        """Verify WebSocket authentication token."""
+        try:
+            if not token:
+                raise ValueError("No token provided")
+            
+            # Support both JWT tokens and API keys
+            if token.startswith("Bearer "):
+                jwt_token = token[7:]  # Remove "Bearer " prefix
+                return self.verify_jwt_token(jwt_token)
+            elif token.startswith("ApiKey "):
+                api_key = token[7:]  # Remove "ApiKey " prefix
+                return self.verify_api_key_auth(api_key)
+            else:
+                # Try as JWT token directly
+                return self.verify_jwt_token(token)
+                
+        except Exception as e:
+            logger.error(f"WebSocket authentication error: {e}")
+            raise ValueError(f"Authentication failed: {str(e)}")
+    
+    def verify_jwt_token(self, token: str) -> Dict:
+        """Verify JWT token for WebSocket."""
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            
+            # Check if token is expired
+            exp = payload.get("exp")
+            if exp and datetime.utcnow().timestamp() > exp:
+                raise ValueError("Token expired")
+            
+            return {
+                "user_id": payload.get("user_id"),
+                "username": payload.get("sub"),
+                "is_admin": payload.get("is_admin", False),
+                "auth_method": "jwt"
+            }
+        except JWTError as e:
+            raise ValueError(f"Invalid JWT token: {str(e)}")
+    
+    def verify_api_key_auth(self, api_key: str) -> Dict:
+        """Verify API key for WebSocket."""
+        user_info = verify_api_key(api_key)
+        if not user_info:
+            raise ValueError("Invalid API key")
+        
+        user_info["auth_method"] = "api_key"
+        return user_info
+    
+    def verify_call_permissions(self, user_info: Dict, call_id: str) -> bool:
+        """Verify user has permissions for specific call."""
+        # For now, allow all authenticated users
+        # In production, implement proper call ownership checks
+        return True
+    
+    def create_websocket_token(self, user_id: str, username: str, 
+                              call_id: Optional[str] = None) -> str:
+        """Create a WebSocket-specific token."""
+        payload = {
+            "sub": username,
+            "user_id": user_id,
+            "call_id": call_id,
+            "scope": "websocket",
+            "iat": datetime.utcnow().timestamp()
+        }
+        
+        # WebSocket tokens have shorter expiry
+        expires_delta = timedelta(minutes=60)
+        return create_access_token(payload, expires_delta)
