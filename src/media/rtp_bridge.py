@@ -73,6 +73,7 @@ class RTPproxy:
         try:
             # Create UDP socket for control commands
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((self.control_addr, self.control_port))
             sock.setblocking(False)
             
@@ -81,59 +82,110 @@ class RTPproxy:
             while self.running:
                 try:
                     data, addr = sock.recvfrom(1024)
-                    response = await self.handle_control_command(data.decode().strip(), addr)
+                    command = data.decode().strip()
+                    logger.info(f"Received RTPproxy command: '{command}' from {addr}")
+                    response = self.handle_control_command_sync(command, addr)
                     if response:
+                        logger.info(f"Sending response: '{response}' to {addr}")
                         sock.sendto(response.encode(), addr)
-                except socket.error:
-                    await asyncio.sleep(0.01)
+                except socket.error as e:
+                    if e.errno not in (socket.EAGAIN, socket.EWOULDBLOCK):
+                        logger.error(f"Socket error: {e}")
+                    await asyncio.sleep(0.001)
+                except Exception as e:
+                    logger.error(f"Error processing command: {e}")
+                    await asyncio.sleep(0.001)
                     
         except Exception as e:
             logger.error(f"Control server error: {e}")
+            raise
     
-    async def handle_control_command(self, command: str, addr: Tuple[str, int]) -> str:
-        """Handle RTPproxy control protocol commands."""
+    def handle_control_command_sync(self, command: str, addr: Tuple[str, int]) -> str:
+        """Handle RTPproxy control protocol commands synchronously."""
         try:
+            if not command:
+                return "E1"
+            
+            # RTPproxy protocol: [cookie] command [parameters]
             parts = command.split()
             if not parts:
                 return "E1"
             
-            cmd = parts[0]
+            # First part might be cookie or command
+            if len(parts) == 1:
+                cmd = parts[0]
+                cookie = ""
+            else:
+                # Could be "cookie V" or just "V"
+                if parts[0] in ["V", "I", "Q"]:
+                    cmd = parts[0]
+                    cookie = ""
+                else:
+                    cookie = parts[0]
+                    cmd = parts[1] if len(parts) > 1 else ""
+            
+            logger.info(f"Processing command: '{cmd}' with cookie: '{cookie}'")
             
             if cmd == "V":
-                # Version command
+                # Version command - respond with version (must be immediate)
+                logger.info("Responding to version command")
                 return "20040107"
             
-            elif cmd.startswith("U"):
+            elif cmd.startswith("U") or cmd == "U":
                 # Update/Create session
-                return await self.handle_update_command(parts)
+                return self.handle_update_command_sync(parts, cookie)
             
-            elif cmd.startswith("D"):
+            elif cmd.startswith("D") or cmd == "D":
                 # Delete session
-                return await self.handle_delete_command(parts)
+                return self.handle_delete_command_sync(parts, cookie)
             
             elif cmd == "I":
                 # Info command
-                return f"sessions created: {len(self.sessions)} active: {len(self.sessions)}"
+                active_sessions = len([s for s in self.sessions.values() if time.time() - s.last_activity < 300])
+                return f"sessions created: {len(self.sessions)} active: {active_sessions}"
+            
+            elif cmd == "Q":
+                # Quit command
+                return "0"
             
             else:
-                logger.warning(f"Unknown command: {cmd}")
+                logger.warning(f"Unknown command: '{cmd}' in '{command}'")
                 return "E1"
                 
         except Exception as e:
             logger.error(f"Error handling control command '{command}': {e}")
+            import traceback
+            traceback.print_exc()
             return "E1"
     
-    async def handle_update_command(self, parts: list) -> str:
-        """Handle session update/create command."""
+    async def handle_control_command(self, command: str, addr: Tuple[str, int]) -> str:
+        """Handle RTPproxy control protocol commands."""
+        return self.handle_control_command_sync(command, addr)
+    
+    def handle_update_command_sync(self, parts: list, cookie: str = "") -> str:
+        """Handle session update/create command synchronously."""
         try:
-            # Parse U command: U cookie call_id ip port from_tag to_tag
-            if len(parts) < 6:
+            # Parse U command: [cookie] U call_id ip port [from_tag] [to_tag]
+            if len(parts) < 4:
                 return "E1"
             
-            cookie = parts[1] if len(parts) > 1 else ""
-            call_id = parts[2] if len(parts) > 2 else ""
-            remote_ip = parts[3] if len(parts) > 3 else "127.0.0.1"
-            remote_port = int(parts[4]) if len(parts) > 4 else 0
+            # Extract parameters - adjust for cookie presence
+            if not cookie and len(parts) > 1:
+                cookie = parts[0] if not parts[0].startswith("U") else ""
+            
+            # Find U command position
+            u_index = 0
+            for i, part in enumerate(parts):
+                if part.startswith("U"):
+                    u_index = i
+                    break
+            
+            if u_index + 3 >= len(parts):
+                return "E1"
+                
+            call_id = parts[u_index + 1]
+            remote_ip = parts[u_index + 2] 
+            remote_port = int(parts[u_index + 3])
             
             # Allocate local port for RTP
             local_port = self.allocate_rtp_port()
@@ -157,8 +209,8 @@ class RTPproxy:
             
             self.sessions[session_id] = session
             
-            # Create RTP socket for this session
-            await self.create_rtp_socket(session)
+            # Create RTP socket for this session (sync version)
+            self.create_rtp_socket_sync(session)
             
             logger.info(f"Created RTP session {session_id}: {remote_ip}:{remote_port} -> 127.0.0.1:{local_port}")
             
@@ -169,22 +221,28 @@ class RTPproxy:
             logger.error(f"Error in update command: {e}")
             return "E1"
     
-    async def handle_delete_command(self, parts: list) -> str:
-        """Handle session delete command."""
+    async def handle_update_command(self, parts: list, cookie: str = "") -> str:
+        """Handle session update/create command."""
+        return self.handle_update_command_sync(parts, cookie)
+    
+    def handle_delete_command_sync(self, parts: list, cookie: str = "") -> str:
+        """Handle session delete command synchronously."""
         try:
-            if len(parts) < 2:
+            if len(parts) < 2 and not cookie:
                 return "E1"
             
-            cookie = parts[1]
+            if not cookie:
+                cookie = parts[1] if len(parts) > 1 else parts[0]
+            
             # Find and remove session by cookie
             sessions_to_remove = [sid for sid in self.sessions if cookie in sid]
             
             for session_id in sessions_to_remove:
                 session = self.sessions.pop(session_id, None)
                 if session:
-                    # Close WebSocket connection
+                    # Close WebSocket connection (sync)
                     if session.ai_websocket:
-                        await session.ai_websocket.close()
+                        session.ai_websocket = None
                     
                     # Close RTP socket
                     if session.local_port in self.socket_pairs:
@@ -198,6 +256,10 @@ class RTPproxy:
         except Exception as e:
             logger.error(f"Error in delete command: {e}")
             return "E1"
+    
+    async def handle_delete_command(self, parts: list, cookie: str = "") -> str:
+        """Handle session delete command."""
+        return self.handle_delete_command_sync(parts, cookie)
     
     def allocate_rtp_port(self) -> Optional[int]:
         """Allocate an available RTP port."""
@@ -218,8 +280,8 @@ class RTPproxy:
         
         return None
     
-    async def create_rtp_socket(self, session: MediaSession):
-        """Create RTP socket for a media session."""
+    def create_rtp_socket_sync(self, session: MediaSession):
+        """Create RTP socket for a media session synchronously."""
         try:
             # Create UDP socket for RTP
             rtp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -232,6 +294,10 @@ class RTPproxy:
             
         except Exception as e:
             logger.error(f"Error creating RTP socket: {e}")
+    
+    async def create_rtp_socket(self, session: MediaSession):
+        """Create RTP socket for a media session."""
+        self.create_rtp_socket_sync(session)
     
     async def process_rtp_packets(self):
         """Process incoming RTP packets and forward to AI platform."""

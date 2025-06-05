@@ -17,3 +17,4 @@ numpy
 structlog
 prometheus-client
 psycopg2-binary
+psutil

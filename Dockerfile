@@ -56,7 +56,8 @@ RUN apk add --no-cache --virtual .build-deps \
     musl-dev \
     linux-headers \
     g++ \
-    make
+    make \
+    python3-dev
 
 # Note: We'll use our custom RTP-WebSocket bridge instead of external RTPproxy
 
@@ -94,17 +95,8 @@ RUN echo '[supervisord]' > /etc/supervisord.conf && \
     echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
     echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
     echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
-    echo '' >> /etc/supervisord.conf && \
-    echo '[program:rtp-bridge]' >> /etc/supervisord.conf && \
-    echo 'command=python3 -m src.media.rtp_bridge' >> /etc/supervisord.conf && \
-    echo 'directory=/app' >> /etc/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
-    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf && \
+    echo 'priority=200' >> /etc/supervisord.conf && \
+    echo 'startsecs=5' >> /etc/supervisord.conf && \
     echo '' >> /etc/supervisord.conf && \
     echo '[program:websocket-bridge]' >> /etc/supervisord.conf && \
     echo 'command=python3 -m src.websocket.bridge' >> /etc/supervisord.conf && \
@@ -126,7 +118,19 @@ RUN echo '[supervisord]' > /etc/supervisord.conf && \
     echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
     echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
     echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
-    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf
+    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf && \
+    echo '' >> /etc/supervisord.conf && \
+    echo '[program:rtp-bridge]' >> /etc/supervisord.conf && \
+    echo 'command=python3 -m src.media.rtp_bridge' >> /etc/supervisord.conf && \
+    echo 'directory=/app' >> /etc/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf && \
+    echo 'priority=100' >> /etc/supervisord.conf
 
 # Make startup script executable
 RUN chmod +x /app/scripts/startup.sh

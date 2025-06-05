@@ -89,6 +89,6 @@ else
     echo "❌ Kamailio config has errors"
 fi
 
-# Start supervisord
-echo "Starting services..."
+# Start all services with supervisor (including RTP bridge)
+echo "Starting all services..."
 exec /usr/bin/supervisord -c /etc/supervisord.conf
