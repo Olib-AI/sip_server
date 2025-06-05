@@ -12,7 +12,7 @@ This project implements a custom SIP (Session Initiation Protocol) server to rep
 
 ### Core Components
 1. **SIP Server (Kamailio)**: Handles SIP signaling, registration, and call routing
-2. **Media Server (RTPEngine)**: Manages RTP media streams for voice data
+2. **Media Relay (RTPProxy)**: Manages RTP media streams for voice data and NAT traversal
 3. **WebSocket Bridge**: Connects SIP calls to the AI platform via WebSocket
 4. **API Server**: Provides REST APIs for call management, SMS, and configuration
 5. **Database**: Stores call records, configurations, and blocked numbers
@@ -21,7 +21,7 @@ This project implements a custom SIP (Session Initiation Protocol) server to rep
 ```
 User Phone → VOIP Provider → Our SIP Server → WebSocket → AI Platform
                                     ↓
-                              Media Server (RTP)
+                              Media Relay (RTPProxy)
 ```
 
 ## Key Features
@@ -36,8 +36,8 @@ User Phone → VOIP Provider → Our SIP Server → WebSocket → AI Platform
 - **Real-time Audio**: Low-latency audio streaming to AI platform
 
 ## Technology Stack
-- **SIP Server**: Kamailio 5.7.x
-- **Media Server**: RTPEngine
+- **SIP Server**: Kamailio 6.0.1
+- **Media Relay**: RTPProxy
 - **Programming Language**: Python 3.11 (API server and WebSocket bridge)
 - **WebSocket**: For AI platform communication
 - **Database**: PostgreSQL (for persistence)

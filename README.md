@@ -57,8 +57,8 @@ A production-ready SIP (Session Initiation Protocol) server built for the Olib A
                                  │
                         ┌────────┴────────┐
                         │                 │
-                        │   RTPEngine     │
-                        │ (Media Server)  │
+                        │   RTPProxy      │
+                        │ (Media Relay)   │
                         │                 │
                         └────────┬────────┘
                                  │
@@ -314,9 +314,9 @@ sip_server/
 │   │   ├── dtmf_processor.py    # DTMF event processing
 │   │   ├── ivr_manager.py       # IVR menu system
 │   │   └── music_on_hold.py     # Hold music management
-│   ├── media/           # RTPEngine integration
+│   ├── media/           # RTPProxy integration
 │   │   ├── media_manager.py     # Media session management
-│   │   └── rtpengine_client.py  # RTPEngine communication
+│   │   └── rtpproxy_client.py   # RTPProxy communication
 │   ├── sip/             # SIP trunk management
 │   │   └── trunk_manager.py     # SIP trunk handling
 │   ├── sms/             # SMS handling
@@ -401,9 +401,9 @@ uvicorn src.api.main:app --reload
 - Review Kamailio logs
 
 **Audio issues**
-- Verify RTP port range is open
-- Check codec compatibility
-- Review NAT configuration
+- Verify RTP port range is open (default: 35000-65000)
+- Check codec compatibility (PCMU/PCMA supported)
+- Review NAT configuration and RTPProxy settings
 - Monitor network latency
 
 **WebSocket connection failures**
@@ -506,7 +506,7 @@ This project is part of the Olib AI platform. All rights reserved.
 
 Built with these amazing open-source projects:
 - [Kamailio](https://www.kamailio.org/) - High-performance SIP server
-- [RTPEngine](https://github.com/sipwise/rtpengine) - Real-time media relay
+- [RTPProxy](https://www.rtpproxy.org/) - RTP media relay and NAT traversal
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
 - [PostgreSQL](https://www.postgresql.org/) - Advanced open-source database
 - [Kubernetes](https://kubernetes.io/) - Container orchestration platform

@@ -113,3 +113,19 @@ def verify_api_key(api_key: str) -> Optional[Dict]:
             "is_admin": True
         }
     return None
+
+
+def verify_token(token: str) -> Dict:
+    """Verify a JWT token and return user info."""
+    try:
+        payload = decode_token(token)
+        return payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token verification error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )

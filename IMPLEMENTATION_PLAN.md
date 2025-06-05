@@ -14,7 +14,7 @@
 - [x] Set up SIP registration and authentication ✓
 - [x] Configure SIP domains and aliases ✓
 - [x] Implement basic call routing logic ✓
-- [x] Set up RTPEngine for media handling ✓
+- [x] Set up RTPProxy for media handling ✓
 - [x] Configure NAT traversal support ✓
 - [x] Implement SIP trunk connectivity ✓
 

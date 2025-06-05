@@ -6,8 +6,8 @@ import time
 import uuid
 from typing import Dict, Optional, Callable, Set, Any
 import websockets
-from websockets.server import WebSocketServerProtocol
-from websockets.client import WebSocketClientProtocol
+from websockets.legacy.server import WebSocketServerProtocol
+from websockets.legacy.client import WebSocketClientProtocol
 from dataclasses import dataclass, asdict
 from enum import Enum
 import struct
@@ -15,8 +15,12 @@ import base64
 import traceback
 from collections import deque, defaultdict
 
-from ..audio.codecs import AudioProcessor
-from ..audio.rtp import RTPManager, RTPSession, RTPStatistics
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from audio.codecs import AudioProcessor
+from audio.rtp import RTPManager, RTPSession, RTPStatistics
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +333,7 @@ class WebSocketBridge:
 
 
 # Import handlers mixin
-from .bridge_handlers import BridgeHandlers
+from bridge_handlers import BridgeHandlers
 
 # Make WebSocketBridge inherit from BridgeHandlers
 class AdvancedWebSocketBridge(WebSocketBridge, BridgeHandlers):
