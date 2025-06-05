@@ -1,14 +1,9 @@
-"""Media handling module for RTPEngine integration."""
+"""Media handling module for RTP bridge integration."""
 
-from .rtpengine_client import RTPEngineClient, RTPSession
-from .media_manager import MediaManager, MediaStream
+# Import only what we need for the RTP bridge
 from .codec_handler import CodecHandler, SupportedCodec
 
 __all__ = [
-    "RTPEngineClient",
-    "RTPSession", 
-    "MediaManager",
-    "MediaStream",
     "CodecHandler",
     "SupportedCodec"
 ]

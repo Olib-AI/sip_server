@@ -29,7 +29,11 @@ RUN apk add --no-cache \
     curl \
     bash \
     netcat-openbsd \
-    bind-tools
+    bind-tools \
+    git \
+    autoconf \
+    automake \
+    libtool
 
 # Note: RTPEngine will be handled by Kamailio's rtpproxy module or external service
 
@@ -37,6 +41,8 @@ RUN apk add --no-cache \
 RUN mkdir -p /etc/kamailio \
     /var/run/kamailio \
     /var/log/kamailio \
+    /var/run/rtpproxy \
+    /tmp/rtpproxy \
     /app \
     /app/config \
     /app/scripts
@@ -44,13 +50,15 @@ RUN mkdir -p /etc/kamailio \
 # Set working directory
 WORKDIR /app
 
-# Install build dependencies for Python packages, then remove them
+# Install build dependencies for Python packages and RTPproxy
 RUN apk add --no-cache --virtual .build-deps \
     gcc \
     musl-dev \
     linux-headers \
     g++ \
     make
+
+# Note: We'll use our custom RTP-WebSocket bridge instead of external RTPproxy
 
 # Copy Python requirements and install
 COPY requirements.txt .
@@ -66,6 +74,9 @@ COPY scripts/ ./scripts/
 
 # Copy Kamailio configuration
 COPY config/kamailio.cfg /etc/kamailio/kamailio.cfg
+
+# Copy RTPproxy configuration
+COPY config/rtpproxy.conf /etc/rtpproxy.conf
 
 # RTP port range will be handled by Kamailio directly
 
@@ -83,6 +94,17 @@ RUN echo '[supervisord]' > /etc/supervisord.conf && \
     echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
     echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
     echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo '' >> /etc/supervisord.conf && \
+    echo '[program:rtp-bridge]' >> /etc/supervisord.conf && \
+    echo 'command=python3 -m src.media.rtp_bridge' >> /etc/supervisord.conf && \
+    echo 'directory=/app' >> /etc/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf && \
     echo '' >> /etc/supervisord.conf && \
     echo '[program:websocket-bridge]' >> /etc/supervisord.conf && \
     echo 'command=python3 -m src.websocket.bridge' >> /etc/supervisord.conf && \
