@@ -120,9 +120,9 @@ EXPOSE 5060/udp 5060/tcp 5061/tcp 8000 8080 8081
 # Environment variables (defaults - use .env file to override)
 ENV PYTHONPATH=/app
 
-# Health check (use configurable API port)
-# HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-#     CMD curl -f http://localhost:${API_PORT:-8080}/health || exit 1
+# Health check with better error reporting
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=5 \
+    CMD /app/scripts/health-check.sh || exit 1
 
 # Run startup script
 CMD ["/bin/bash", "/app/scripts/startup.sh"]

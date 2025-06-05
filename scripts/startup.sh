@@ -1,13 +1,64 @@
 #!/bin/bash
-set -ex  # Add -x for debug output
+set -e  # Exit on error
 
-# Add error handling
-trap 'echo "Error on line $LINENO" >&2' ERR
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Better error handling with context
+error_handler() {
+    local line_no=$1
+    echo -e "${RED}[ERROR] Script failed at line $line_no${NC}" >&2
+    echo -e "${RED}[ERROR] Last command: ${BASH_COMMAND}${NC}" >&2
+    echo -e "${RED}[ERROR] Exit code: $?${NC}" >&2
+    
+    # Provide helpful context based on where it failed
+    if [ $line_no -lt 50 ]; then
+        echo -e "${YELLOW}[HINT] This appears to be a database connection issue.${NC}" >&2
+        echo -e "${YELLOW}[HINT] Check DATABASE_URL and ensure PostgreSQL is running.${NC}" >&2
+    elif [ $line_no -lt 100 ]; then
+        echo -e "${YELLOW}[HINT] This appears to be a Python import issue.${NC}" >&2
+        echo -e "${YELLOW}[HINT] Check if all requirements are installed.${NC}" >&2
+    else
+        echo -e "${YELLOW}[HINT] This appears to be a service startup issue.${NC}" >&2
+        echo -e "${YELLOW}[HINT] Check logs above for more details.${NC}" >&2
+    fi
+    
+    exit 1
+}
+
+trap 'error_handler $LINENO' ERR
+
+# Function to log with color
+log_info() {
+    echo -e "${GREEN}[INFO] $1${NC}"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN] $1${NC}"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR] $1${NC}" >&2
+}
+
+# Run validation first
+log_info "Running startup validation..."
+if [ -f /app/scripts/validate-startup.sh ]; then
+    /app/scripts/validate-startup.sh || {
+        log_error "Validation failed! Please fix the issues above before proceeding."
+        exit 1
+    }
+else
+    log_warn "Validation script not found, skipping validation"
+fi
 
 # Parse DATABASE_URL to extract components
 if [ -n "$DATABASE_URL" ]; then
-    echo "DATABASE_URL: $DATABASE_URL"
-    echo "Waiting for PostgreSQL..."
+    log_info "DATABASE_URL is set"
+    log_info "Waiting for PostgreSQL..."
     
     # For docker-compose, the host is simply 'postgres' as defined in the service name
     # The DATABASE_URL from docker-compose.yml is: postgresql://kamailio:kamailiopw@postgres/kamailio

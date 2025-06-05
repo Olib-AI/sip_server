@@ -30,9 +30,6 @@ docker-compose up -d
 
 ### 3. Test Environment
 ```bash
-# Run test suite with Docker Compose
-docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
-
 # Run tests locally (requires Python environment)
 python3 -m pytest src/tests/ -v
 ```

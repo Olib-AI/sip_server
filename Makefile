@@ -1,19 +1,21 @@
 # Olib AI SIP Server Makefile
 
-.PHONY: help build test lint format clean dev-up dev-down logs shell
+.PHONY: help validate build test lint format clean dev-up dev-down logs shell validate-env
 
 # Default target
 help:
 	@echo "Available commands:"
+	@echo "  validate   - Validate environment before starting"
 	@echo "  build      - Build Docker image"
 	@echo "  test       - Run tests"
 	@echo "  lint       - Run linting"
 	@echo "  format     - Format code"
 	@echo "  clean      - Clean up containers and images"
-	@echo "  dev-up     - Start development environment"
+	@echo "  dev-up     - Start development environment (with validation)"
 	@echo "  dev-down   - Stop development environment"
 	@echo "  logs       - Show logs"
 	@echo "  shell      - Access container shell"
+	@echo "  health     - Check container health"
 	@echo "  load-test  - Run load tests"
 
 # Variables
@@ -21,6 +23,14 @@ IMAGE_NAME ?= olib-sip-server
 IMAGE_TAG ?= latest
 DOCKER_COMPOSE = docker-compose
 PYTEST_ARGS ?= --verbose
+
+# Validate environment
+validate:
+	@echo "Validating Docker environment..."
+	@./validate-docker.sh
+
+# Validate environment (alias)
+validate-env: validate
 
 # Build Docker image
 build:
@@ -48,14 +58,16 @@ format:
 	$(DOCKER_COMPOSE) exec sip-server black src/
 	$(DOCKER_COMPOSE) exec sip-server black --check src/
 
-# Start development environment
-dev-up:
+# Start development environment with validation
+dev-up: validate
 	$(DOCKER_COMPOSE) up -d
 	@echo "Waiting for services to be ready..."
 	@sleep 10
+	@echo "Checking container health..."
+	@$(DOCKER_COMPOSE) exec sip-server /app/scripts/health-check.sh || echo "Health check not ready yet"
 	@echo "Services are ready!"
-	@echo "API: http://localhost:8000"
-	@echo "WebSocket: ws://localhost:8080"
+	@echo "API: http://localhost:8080"
+	@echo "WebSocket: ws://localhost:8081"
 	@echo "Grafana: http://localhost:3000 (admin/admin)"
 
 # Stop development environment
@@ -97,7 +109,10 @@ rebuild: clean build dev-up
 
 # Check health
 health:
-	curl -f http://localhost:8000/health
+	@echo "Checking container health..."
+	@$(DOCKER_COMPOSE) exec sip-server /app/scripts/health-check.sh
+	@echo "\nChecking API endpoint..."
+	@curl -f http://localhost:8080/health || echo "API not responding"
 
 # Get server status
 status:
