@@ -124,6 +124,31 @@ async def create_database_schema(database_url: str):
             );
         """)
         
+        # Address table for permissions module
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS address (
+                id SERIAL PRIMARY KEY NOT NULL,
+                grp INTEGER DEFAULT 1 NOT NULL,
+                ip_addr VARCHAR(50) NOT NULL,
+                mask INTEGER DEFAULT 32 NOT NULL,
+                port INTEGER DEFAULT 0 NOT NULL,
+                tag VARCHAR(64)
+            );
+        """)
+        
+        # Trusted table for permissions module
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS trusted (
+                id SERIAL PRIMARY KEY NOT NULL,
+                src_ip VARCHAR(50) NOT NULL,
+                proto VARCHAR(4) NOT NULL,
+                from_pattern VARCHAR(64) DEFAULT NULL,
+                ruri_pattern VARCHAR(64) DEFAULT NULL,
+                tag VARCHAR(64) DEFAULT NULL,
+                priority INTEGER DEFAULT 0 NOT NULL
+            );
+        """)
+        
         # Call detail records for our application
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS call_records (
@@ -254,6 +279,8 @@ async def create_database_schema(database_url: str):
             ('dialog', 7),
             ('dialog_vars', 1),
             ('dispatcher', 4),
+            ('address', 6),
+            ('trusted', 6),
             ('call_records', 1),
             ('sms_records', 1),
             ('registered_numbers', 1),

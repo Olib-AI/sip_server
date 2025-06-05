@@ -9,7 +9,6 @@ RUN apk add --no-cache \
     kamailio-websocket \
     kamailio-tls \
     kamailio-jansson \
-    kamailio-presence \
     kamailio-postgres \
     kamailio-extras \
     kamailio-utils \
