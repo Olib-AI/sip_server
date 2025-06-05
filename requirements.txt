@@ -12,6 +12,7 @@ scipy
 pytest
 pytest-asyncio
 pytest-mock
+pytest-cov
 httpx
 aiohttp
 python-jose[cryptography]
