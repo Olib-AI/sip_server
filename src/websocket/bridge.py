@@ -179,23 +179,27 @@ class ConnectionManager:
             return None
             
     async def _send_call_start(self, connection: WebSocketClientProtocol, call_info: CallInfo) -> None:
-        """Send call start message to AI platform."""
-        message = {
-            "type": MessageType.CALL_START.value,
-            "data": {
-                "call_id": call_info.call_id,
-                "session_id": call_info.ai_session_id,
+        """Send call start message to AI platform with authentication."""
+        # Create authentication message first
+        auth_message = {
+            "type": "auth",
+            "auth": {
+                "token": f"Bearer {call_info.ai_session_id}",
+                "signature": "dummy_signature",  # Would be real HMAC in production
+                "timestamp": str(int(time.time())),
+                "call_id": call_info.call_id
+            },
+            "call": {
+                "conversation_id": call_info.call_id,  # Use call_id as conversation_id for now
                 "from_number": call_info.from_number,
                 "to_number": call_info.to_number,
-                "codec": call_info.codec,
-                "sample_rate": 8000,
-                "channels": 1,
-                "frame_size_ms": 20,
+                "direction": "incoming",
                 "sip_headers": call_info.sip_headers,
-                "timestamp": time.time()
+                "codec": call_info.codec,
+                "sample_rate": 8000
             }
         }
-        await connection.send(json.dumps(message))
+        await connection.send(json.dumps(auth_message))
         
     async def disconnect_call(self, call_id: str) -> None:
         """Disconnect AI platform connection for a call."""
@@ -353,8 +357,8 @@ async def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # AI platform WebSocket URL
-    ai_platform_url = "ws://localhost:8001/ws/voice"  # Update with actual AI platform URL
+    # AI platform WebSocket URL - updated for SIP integration
+    ai_platform_url = "ws://localhost:8001/sip/ws"  # SIP-specific endpoint
     
     # Create and start bridge
     bridge = WebSocketBridge(ai_platform_url)
