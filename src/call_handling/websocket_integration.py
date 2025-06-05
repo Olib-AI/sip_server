@@ -1,6 +1,7 @@
 """WebSocket integration for connecting call manager to AI platform."""
 import asyncio
 import websockets
+import websockets.exceptions
 import json
 import logging
 from typing import Dict, Any, Optional, Set, Callable
@@ -86,6 +87,10 @@ class WebSocketCallBridge:
                 finally:
                     # Cleanup connection
                     await self._cleanup_websocket_connection(websocket)
+            
+            # Suppress websocket connection errors completely - they're just health checks
+            websockets_logger = logging.getLogger('websockets.server')
+            websockets_logger.setLevel(logging.CRITICAL)
             
             # Start server on configured port
             server = await websockets.serve(

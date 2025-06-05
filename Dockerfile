@@ -29,6 +29,7 @@ RUN apk add --no-cache \
     curl \
     bash \
     netcat-openbsd \
+    procps \
     bind-tools \
     git \
     autoconf \

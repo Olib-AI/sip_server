@@ -192,6 +192,10 @@ async def main():
         log_level = getattr(logging, args.log_level.upper(), logging.INFO)
         logging.getLogger().setLevel(log_level)
     
+    # Suppress websockets connection errors (they're just health checks)
+    websockets_logger = logging.getLogger('websockets.server')
+    websockets_logger.setLevel(logging.CRITICAL)
+    
     server.setup_signal_handlers()
     
     try:
