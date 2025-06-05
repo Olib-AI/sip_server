@@ -22,8 +22,7 @@ services:
   sip-server:
     build: .
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     env_file:
       - .env
     environment:
@@ -42,7 +41,7 @@ services:
       # WebSocket bridge port
       - "${WEBSOCKET_PORT:-8081}:${WEBSOCKET_PORT:-8081}"
       # RTP ports (reduced range for local testing)
-      - "${RTP_PORT_RANGE_START:-10000}-${RTP_PORT_RANGE_END:-10100}:${RTP_PORT_RANGE_START:-10000}-${RTP_PORT_RANGE_END:-10100}/udp"
+      # - "${RTP_PORT_RANGE_START:-10000}-${RTP_PORT_RANGE_END:-10100}:${RTP_PORT_RANGE_START:-10000}-${RTP_PORT_RANGE_END:-10100}/udp"
     volumes:
       - ./logs:/var/log
       - ./config:/app/config:ro

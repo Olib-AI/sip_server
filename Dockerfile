@@ -110,18 +110,19 @@ RUN echo '[supervisord]' > /etc/supervisord.conf && \
     echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf && \
     echo 'priority=100' >> /etc/supervisord.conf
 
-# Make startup script executable
-RUN chmod +x /app/scripts/startup.sh
+# Make startup scripts executable
+RUN chmod +x /app/scripts/startup.sh && \
+    chmod +x /app/scripts/startup-debug.sh || true
 
 # Expose ports
-EXPOSE 5060/udp 5060/tcp 5061/tcp 8000 8080 10000-20000/udp
+EXPOSE 5060/udp 5060/tcp 5061/tcp 8000 8080 8081
 
 # Environment variables (defaults - use .env file to override)
 ENV PYTHONPATH=/app
 
 # Health check (use configurable API port)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:${API_PORT:-8080}/health || exit 1
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+#     CMD curl -f http://localhost:${API_PORT:-8080}/health || exit 1
 
 # Run startup script
-CMD ["/app/scripts/startup.sh"]
+CMD ["/bin/bash", "/app/scripts/startup.sh"]

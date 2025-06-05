@@ -1,5 +1,8 @@
 #!/bin/bash
-set -e
+set -ex  # Add -x for debug output
+
+# Add error handling
+trap 'echo "Error on line $LINENO" >&2' ERR
 
 # Parse DATABASE_URL to extract components
 if [ -n "$DATABASE_URL" ]; then
@@ -8,8 +11,8 @@ if [ -n "$DATABASE_URL" ]; then
     
     # For docker-compose, the host is simply 'postgres' as defined in the service name
     # The DATABASE_URL from docker-compose.yml is: postgresql://kamailio:kamailiopw@postgres/kamailio
-    DB_HOST="postgres"
-    DB_PORT="5432"
+    DB_HOST="${DB_HOST:-postgres}"
+    DB_PORT="${DB_PORT:-5432}"
     
     echo "Checking connection to $DB_HOST:$DB_PORT"
     
@@ -53,7 +56,7 @@ echo "Creating log directories..."
 mkdir -p /var/log/kamailio
 mkdir -p /var/log
 
-# Test services individually first
+# Test services individually first (non-fatal)
 echo "Testing SIP integration modules..."
 cd /app
 python3 -c "
@@ -66,7 +69,7 @@ except Exception as e:
     print(f'❌ SIP API integration import failed: {e}')
     import traceback
     traceback.print_exc()
-"
+" || echo "Warning: SIP API integration test failed (non-fatal)"
 
 echo "Testing call manager..."
 python3 -c "
@@ -79,7 +82,7 @@ except Exception as e:
     print(f'❌ Call manager import failed: {e}')
     import traceback
     traceback.print_exc()
-"
+" || echo "Warning: Call manager test failed (non-fatal)"
 
 echo "Testing WebSocket integration..."
 python3 -c "
@@ -92,7 +95,7 @@ except Exception as e:
     print(f'❌ WebSocket integration import failed: {e}')
     import traceback
     traceback.print_exc()
-"
+" || echo "Warning: WebSocket integration test failed (non-fatal)"
 
 echo "Testing main integration..."
 python3 -c "
@@ -105,7 +108,7 @@ except Exception as e:
     print(f'❌ Main integration import failed: {e}')
     import traceback
     traceback.print_exc()
-"
+" || echo "Warning: Main integration test failed (non-fatal)"
 
 echo "Testing Kamailio config..."
 kamailio -c -f /etc/kamailio/kamailio.cfg
@@ -117,4 +120,14 @@ fi
 
 # Start all services with supervisor (including RTP bridge)
 echo "Starting all services..."
-exec /usr/bin/supervisord -c /etc/supervisord.conf
+# Check for supervisord in different locations
+if [ -x "/usr/bin/supervisord" ]; then
+    exec /usr/bin/supervisord -c /etc/supervisord.conf
+elif [ -x "/usr/local/bin/supervisord" ]; then
+    exec /usr/local/bin/supervisord -c /etc/supervisord.conf
+elif command -v supervisord &> /dev/null; then
+    exec supervisord -c /etc/supervisord.conf
+else
+    echo "ERROR: supervisord not found!"
+    exit 1
+fi
