@@ -1,0 +1,377 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sip-server-config
+  namespace: sip-system
+data:
+  kamailio.cfg: |
+    #!KAMAILIO
+    # MicroK8s optimized Kamailio configuration
+    
+    ####### Global Parameters #########
+    debug=2
+    log_stderror=yes
+    memdbg=5
+    memlog=5
+    log_facility=LOG_LOCAL0
+    fork=yes
+    children=4
+    tcp_children=4
+    disable_tcp=no
+    auto_aliases=no
+    
+    # Listen on all interfaces in container
+    listen=udp:0.0.0.0:5060
+    listen=tcp:0.0.0.0:5060
+    listen=tls:0.0.0.0:5061
+    
+    # Set server name - will be replaced by init script
+    alias="SIP_DOMAIN_PLACEHOLDER"
+    
+    ####### Modules Section ########
+    mpath="/usr/lib/x86_64-linux-gnu/kamailio/modules/"
+    
+    loadmodule "tm.so"
+    loadmodule "sl.so"
+    loadmodule "rr.so"
+    loadmodule "pv.so"
+    loadmodule "maxfwd.so"
+    loadmodule "usrloc.so"
+    loadmodule "registrar.so"
+    loadmodule "textops.so"
+    loadmodule "textopsx.so"
+    loadmodule "siputils.so"
+    loadmodule "xlog.so"
+    loadmodule "sanity.so"
+    loadmodule "ctl.so"
+    loadmodule "cfg_rpc.so"
+    loadmodule "jsonrpcs.so"
+    loadmodule "kex.so"
+    loadmodule "corex.so"
+    loadmodule "nathelper.so"
+    loadmodule "websocket.so"
+    loadmodule "auth.so"
+    loadmodule "auth_db.so"
+    loadmodule "db_postgres.so"
+    loadmodule "htable.so"
+    loadmodule "pike.so"
+    loadmodule "dialog.so"
+    loadmodule "http_async_client.so"
+    loadmodule "jansson.so"
+    loadmodule "rtimer.so"
+    loadmodule "sqlops.so"
+    loadmodule "cfgutils.so"
+    
+    # Module parameters
+    modparam("db_postgres", "con_param", "connect_timeout=5")
+    modparam("auth_db|usrloc|dialog", "db_url", "DATABASE_URL_PLACEHOLDER")
+    
+    modparam("usrloc", "db_mode", 2)
+    modparam("usrloc", "use_domain", 0)
+    
+    modparam("auth_db", "calculate_ha1", 1)
+    modparam("auth_db", "password_column", "password")
+    modparam("auth_db", "load_credentials", "")
+    
+    modparam("websocket", "keepalive_mechanism", 1)
+    modparam("websocket", "keepalive_timeout", 30)
+    modparam("websocket", "keepalive_interval", 5)
+    
+    modparam("nathelper", "natping_interval", 30)
+    modparam("nathelper", "ping_nated_only", 1)
+    modparam("nathelper", "sipping_bflag", 7)
+    modparam("nathelper", "sipping_from", "sip:pinger@SIP_DOMAIN_PLACEHOLDER")
+    
+    modparam("dialog", "enable_stats", 1)
+    modparam("dialog", "dlg_flag", 4)
+    modparam("dialog", "db_mode", 1)
+    
+    modparam("http_async_client", "workers", 4)
+    modparam("http_async_client", "connection_timeout", 2000)
+    
+    modparam("pike", "sampling_time_unit", 2)
+    modparam("pike", "reqs_density_per_unit", 16)
+    modparam("pike", "remove_latency", 4)
+    
+    modparam("htable", "htable", "calls=>size=8;autoexpire=3600")
+    modparam("htable", "htable", "blocked=>size=4;autoexpire=86400")
+    
+    modparam("jsonrpcs", "pretty_format", 1)
+    modparam("ctl", "binrpc", "unix:/run/kamailio/kamailio_ctl")
+    
+    ####### Routing Logic ########
+    request_route {
+        if (!sanity_check()) {
+            xlog("L_WARN", "Malformed SIP message from $si:$sp\n");
+            exit;
+        }
+    
+        if (is_method("OPTIONS")) {
+            sl_send_reply("200", "OK");
+            exit;
+        }
+    
+        if (!pike_check_req()) {
+            xlog("L_ALERT", "Rate limit exceeded from $si\n");
+            sl_send_reply("503", "Service Unavailable");
+            exit;
+        }
+    
+        if (is_method("REGISTER")) {
+            route(REGISTRAR);
+            exit;
+        }
+    
+        if (is_method("INVITE")) {
+            route(INVITE);
+            exit;
+        }
+    
+        if (is_method("MESSAGE")) {
+            route(MESSAGE);
+            exit;
+        }
+    
+        if (is_method("CANCEL|ACK")) {
+            if (t_check_trans()) {
+                t_relay();
+            }
+            exit;
+        }
+    
+        if (is_method("BYE")) {
+            route(BYE);
+            exit;
+        }
+    
+        sl_send_reply("405", "Method Not Allowed");
+    }
+    
+    route[REGISTRAR] {
+        if (!www_authorize("$td", "subscriber")) {
+            www_challenge("$td", "0");
+            exit;
+        }
+    
+        if (!save("location")) {
+            sl_reply_error();
+            exit;
+        }
+    
+        xlog("L_INFO", "User $fU registered from $si\n");
+        sl_send_reply("200", "OK");
+    }
+    
+    route[INVITE] {
+        dlg_manage();
+        record_route();
+        
+        xlog("L_INFO", "INVITE from $fU to $tU\n");
+        
+        if (!lookup("location")) {
+            sl_send_reply("404", "Not Found");
+            exit;
+        }
+    
+        t_relay();
+    }
+    
+    route[BYE] {
+        xlog("L_INFO", "BYE for call $ci\n");
+        t_relay();
+    }
+    
+    route[MESSAGE] {
+        xlog("L_INFO", "MESSAGE from $fU to $tU: $rb\n");
+        sl_send_reply("200", "OK");
+    }
+    
+    onreply_route {
+        if (status=~"[12][0-9][0-9]") {
+            xlog("L_INFO", "Reply $rs $rr\n");
+        }
+    }
+    
+    failure_route[MANAGE_FAILURE] {
+        if (t_is_canceled()) {
+            exit;
+        }
+    }
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sip-server-secret
+  namespace: sip-system
+type: Opaque
+stringData:
+  JWT_SECRET_KEY: "change-this-in-production-very-secret-key-for-jwt-tokens"
+  SIP_DOMAIN: "sip.olib.local"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sip-server
+  namespace: sip-system
+  labels:
+    app: sip-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sip-server
+  template:
+    metadata:
+      labels:
+        app: sip-server
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:15-alpine
+        command: ['sh', '-c']
+        args:
+        - |
+          until pg_isready -h postgres-service -p 5432 -U kamailio; do
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+      containers:
+      - name: sip-server
+        image: alpine:3.18
+        command: ["/bin/sh"]
+        args: ["-c", "/app/scripts/start.sh"]
+        ports:
+        - containerPort: 5060
+          protocol: UDP
+          name: sip-udp
+        - containerPort: 5060
+          protocol: TCP
+          name: sip-tcp
+        - containerPort: 5061
+          protocol: TCP
+          name: sips
+        - containerPort: 8000
+          protocol: TCP
+          name: api
+        - containerPort: 8080
+          protocol: TCP
+          name: websocket
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: DATABASE_URL
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sip-server-secret
+              key: JWT_SECRET_KEY
+        - name: SIP_DOMAIN
+          valueFrom:
+            secretKeyRef:
+              name: sip-server-secret
+              key: SIP_DOMAIN
+        - name: AI_PLATFORM_URL
+          value: "ws://ai-platform-service:8001/ws/voice"
+        - name: KAMAILIO_SHARED_MEMORY
+          value: "256"
+        - name: KAMAILIO_PKG_MEMORY
+          value: "32"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/kamailio
+        - name: scripts
+          mountPath: /app/scripts
+        - name: app-src
+          mountPath: /app/src
+        - name: run-kamailio
+          mountPath: /run/kamailio
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: sip-server-config
+      - name: scripts
+        configMap:
+          name: sip-server-scripts
+          defaultMode: 0755
+      - name: app-src
+        configMap:
+          name: sip-server-app
+      - name: run-kamailio
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sip-server-api
+  namespace: sip-system
+spec:
+  selector:
+    app: sip-server
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: api
+  - port: 8080
+    targetPort: 8080
+    name: websocket
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sip-server-sip
+  namespace: sip-system
+  annotations:
+    metallb.universe.tf/address-pool: default
+spec:
+  selector:
+    app: sip-server
+  ports:
+  - port: 5060
+    targetPort: 5060
+    protocol: UDP
+    name: sip-udp
+  - port: 5060
+    targetPort: 5060
+    protocol: TCP
+    name: sip-tcp
+  - port: 5061
+    targetPort: 5061
+    protocol: TCP
+    name: sips
+  type: LoadBalancer
+  sessionAffinity: ClientIP

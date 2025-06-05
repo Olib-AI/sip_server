@@ -1,0 +1,365 @@
+---
+# Example Network Policies for Specific VOIP Providers
+# Customize these based on your actual provider configurations
+
+# Example 1: Twilio-specific Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: twilio-sip-ingress
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+  policyTypes:
+  - Ingress
+  ingress:
+  # Twilio Elastic SIP Trunking IP Ranges (as of 2024)
+  # North America
+  - from:
+    - ipBlock:
+        cidr: 54.172.60.0/23
+    - ipBlock:
+        cidr: 34.203.250.0/23
+    - ipBlock:
+        cidr: 3.213.144.96/27
+    - ipBlock:
+        cidr: 3.223.51.160/27
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 20000
+  
+  # Europe
+  - from:
+    - ipBlock:
+        cidr: 52.215.127.0/24
+    - ipBlock:
+        cidr: 3.122.181.0/24
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 20000
+  
+  # Asia Pacific
+  - from:
+    - ipBlock:
+        cidr: 54.65.63.0/24
+    - ipBlock:
+        cidr: 13.55.180.0/24
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 20000
+
+---
+# Example 2: Vonage (Nexmo) Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vonage-sip-ingress
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+  policyTypes:
+  - Ingress
+  ingress:
+  # Vonage SIP Endpoints
+  - from:
+    - ipBlock:
+        cidr: 5.10.112.0/21
+    - ipBlock:
+        cidr: 74.125.0.0/16
+    - ipBlock:
+        cidr: 209.85.0.0/16
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 20000
+
+---
+# Example 3: AWS Chime Voice Connector
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aws-chime-sip-ingress
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+  policyTypes:
+  - Ingress
+  ingress:
+  # AWS Chime Voice Connector IPs (region-specific)
+  # US East (N. Virginia)
+  - from:
+    - ipBlock:
+        cidr: 99.77.253.0/24
+    - ipBlock:
+        cidr: 99.77.254.0/24
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 60000  # AWS Chime uses wider range
+  
+  # US West (Oregon)
+  - from:
+    - ipBlock:
+        cidr: 99.77.255.0/24
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 60000
+
+---
+# Example 4: Multi-Provider Egress Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: multi-provider-egress
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+  policyTypes:
+  - Egress
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # Twilio
+  - to:
+    - ipBlock:
+        cidr: 54.172.60.0/23
+    - ipBlock:
+        cidr: 34.203.250.0/23
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: TCP
+      port: 5061
+    - protocol: UDP
+      port: 10000
+      endPort: 60000
+  
+  # Vonage
+  - to:
+    - ipBlock:
+        cidr: 5.10.112.0/21
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 60000
+  
+  # Generic SIP ports for other providers
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443  # SIP over WebSocket
+    - protocol: TCP
+      port: 8089  # Asterisk WebSocket
+
+---
+# Example 5: Development Environment with Relaxed Policies
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dev-environment-policy
+  namespace: sip-system
+  labels:
+    environment: development
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow all SIP/RTP traffic for testing
+  - from:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: TCP
+      port: 5061
+    - protocol: UDP
+      port: 10000
+      endPort: 20000
+  
+  # Allow all internal cluster traffic
+  - from:
+    - namespaceSelector: {}
+    - podSelector: {}
+  
+  egress:
+  # Allow all outbound traffic for development
+  - {}
+
+---
+# Example 6: IP Whitelist for Specific Customers
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: customer-ip-whitelist
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+      tier: premium  # Only apply to premium tier pods
+  policyTypes:
+  - Ingress
+  ingress:
+  # Customer A
+  - from:
+    - ipBlock:
+        cidr: 203.0.113.0/24  # Customer A's IP range
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 20000
+  
+  # Customer B with multiple sites
+  - from:
+    - ipBlock:
+        cidr: 198.51.100.0/24  # Customer B Site 1
+    - ipBlock:
+        cidr: 198.51.101.0/24  # Customer B Site 2
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: UDP
+      port: 10000
+      endPort: 20000
+
+---
+# Example 7: Monitoring and Metrics Collection
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-access
+  namespace: sip-system
+spec:
+  podSelector: {}  # Apply to all pods
+  policyTypes:
+  - Ingress
+  ingress:
+  # Prometheus metrics scraping
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+    ports:
+    - protocol: TCP
+      port: 9090  # Prometheus metrics
+    - protocol: TCP
+      port: 8000  # API metrics endpoint
+  
+  # Grafana access for dashboards
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: grafana
+    ports:
+    - protocol: TCP
+      port: 8000  # API access
+
+---
+# Example 8: Gradual Rollout Policy
+# Use this to test new network policies on a subset of pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: canary-deployment-policy
+  namespace: sip-system
+  labels:
+    deployment: canary
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+      version: canary  # Only apply to canary pods
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # More restrictive rules for canary
+  - from:
+    - ipBlock:
+        cidr: 10.0.0.0/24  # Only from test network
+    ports:
+    - protocol: UDP
+      port: 5060
+  egress:
+  # Limited egress for canary
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432

@@ -1,0 +1,202 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: sip-system
+data:
+  POSTGRES_DB: kamailio
+  POSTGRES_USER: kamailio
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: sip-system
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: kamailiopw
+  DATABASE_URL: postgresql://kamailio:kamailiopw@postgres-service:5432/kamailio
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: sip-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: microk8s-hostpath
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: sip-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        envFrom:
+        - configMapRef:
+            name: postgres-config
+        - secretRef:
+            name: postgres-secret
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - kamailio
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - kamailio
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: init-scripts
+        configMap:
+          name: postgres-init
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: sip-system
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: sip-system
+data:
+  init-kamailio.sql: |
+    -- Kamailio database initialization
+    CREATE TABLE IF NOT EXISTS version (
+        table_name VARCHAR(32) NOT NULL,
+        table_version INTEGER DEFAULT 0 NOT NULL,
+        CONSTRAINT version_table_name_idx UNIQUE (table_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS subscriber (
+        id SERIAL PRIMARY KEY NOT NULL,
+        username VARCHAR(64) DEFAULT '' NOT NULL,
+        domain VARCHAR(64) DEFAULT '' NOT NULL,
+        password VARCHAR(25) DEFAULT '' NOT NULL,
+        email_address VARCHAR(64) DEFAULT '' NOT NULL,
+        ha1 VARCHAR(64) DEFAULT '' NOT NULL,
+        ha1b VARCHAR(64) DEFAULT '' NOT NULL,
+        rpid VARCHAR(64) DEFAULT NULL,
+        CONSTRAINT subscriber_account_idx UNIQUE (username, domain)
+    );
+
+    CREATE TABLE IF NOT EXISTS location (
+        id SERIAL PRIMARY KEY NOT NULL,
+        ruid VARCHAR(64) DEFAULT '' NOT NULL,
+        username VARCHAR(64) DEFAULT '' NOT NULL,
+        domain VARCHAR(64) DEFAULT NULL,
+        contact VARCHAR(512) DEFAULT '' NOT NULL,
+        received VARCHAR(128) DEFAULT NULL,
+        path VARCHAR(512) DEFAULT NULL,
+        expires TIMESTAMP WITHOUT TIME ZONE DEFAULT '2030-05-28 21:32:15' NOT NULL,
+        q REAL DEFAULT 1.0 NOT NULL,
+        callid VARCHAR(255) DEFAULT 'Default-Call-ID' NOT NULL,
+        cseq INTEGER DEFAULT 1 NOT NULL,
+        last_modified TIMESTAMP WITHOUT TIME ZONE DEFAULT '2000-01-01 00:00:01' NOT NULL,
+        flags INTEGER DEFAULT 0 NOT NULL,
+        cflags INTEGER DEFAULT 0 NOT NULL,
+        user_agent VARCHAR(255) DEFAULT '' NOT NULL,
+        socket VARCHAR(64) DEFAULT NULL,
+        methods INTEGER DEFAULT NULL,
+        instance VARCHAR(255) DEFAULT NULL,
+        reg_id INTEGER DEFAULT 0 NOT NULL,
+        server_id INTEGER DEFAULT 0 NOT NULL,
+        connection_id INTEGER DEFAULT 0 NOT NULL,
+        keepalive INTEGER DEFAULT 0 NOT NULL,
+        partition INTEGER DEFAULT 0 NOT NULL
+    );
+
+    CREATE INDEX location_account_contact_idx ON location (username, domain, contact);
+    CREATE INDEX location_expires_idx ON location (expires);
+
+    CREATE TABLE IF NOT EXISTS dialog (
+        id SERIAL PRIMARY KEY NOT NULL,
+        hash_entry INTEGER NOT NULL,
+        hash_id INTEGER NOT NULL,
+        callid VARCHAR(255) NOT NULL,
+        from_uri VARCHAR(128) NOT NULL,
+        from_tag VARCHAR(64) NOT NULL,
+        to_uri VARCHAR(128) NOT NULL,
+        to_tag VARCHAR(64) NOT NULL,
+        caller_cseq VARCHAR(20) NOT NULL,
+        callee_cseq VARCHAR(20) NOT NULL,
+        caller_route_set TEXT,
+        callee_route_set TEXT,
+        caller_contact VARCHAR(128) NOT NULL,
+        callee_contact VARCHAR(128) NOT NULL,
+        caller_sock VARCHAR(64) NOT NULL,
+        callee_sock VARCHAR(64) NOT NULL,
+        state INTEGER NOT NULL,
+        start_time INTEGER NOT NULL,
+        timeout INTEGER DEFAULT 0 NOT NULL,
+        sflags INTEGER DEFAULT 0 NOT NULL,
+        iflags INTEGER DEFAULT 0 NOT NULL,
+        toroute_name VARCHAR(32),
+        req_uri VARCHAR(128) NOT NULL,
+        xdata TEXT
+    );
+
+    CREATE INDEX dialog_hash_idx ON dialog (hash_entry, hash_id);
+
+    -- Insert version information
+    INSERT INTO version (table_name, table_version) VALUES ('subscriber', 7) ON CONFLICT (table_name) DO UPDATE SET table_version = 7;
+    INSERT INTO version (table_name, table_version) VALUES ('location', 9) ON CONFLICT (table_name) DO UPDATE SET table_version = 9;
+    INSERT INTO version (table_name, table_version) VALUES ('dialog', 7) ON CONFLICT (table_name) DO UPDATE SET table_version = 7;

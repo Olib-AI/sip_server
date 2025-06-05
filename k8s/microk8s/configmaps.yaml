@@ -1,0 +1,294 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sip-server-scripts
+  namespace: sip-system
+data:
+  start.sh: |
+    #!/bin/sh
+    set -e
+    
+    echo "Starting SIP Server initialization..."
+    
+    # Install required packages
+    apk update
+    apk add --no-cache \
+        python3 \
+        py3-pip \
+        py3-psutil \
+        py3-asyncio \
+        py3-aiohttp \
+        py3-websockets \
+        kamailio \
+        kamailio-db \
+        kamailio-postgres \
+        kamailio-json \
+        kamailio-websocket \
+        kamailio-tls \
+        curl \
+        postgresql-client \
+        supervisor
+    
+    # Install Python packages
+    pip3 install fastapi uvicorn sqlalchemy asyncpg pydantic
+    
+    # Create directories
+    mkdir -p /var/log/kamailio /var/log/supervisor /run/kamailio
+    
+    # Configure Kamailio with environment variables
+    sed -i "s/SIP_DOMAIN_PLACEHOLDER/$SIP_DOMAIN/g" /etc/kamailio/kamailio.cfg
+    sed -i "s|DATABASE_URL_PLACEHOLDER|$DATABASE_URL|g" /etc/kamailio/kamailio.cfg
+    
+    # Create supervisor configuration
+    cat > /etc/supervisor/supervisord.conf << 'EOF'
+    [supervisord]
+    nodaemon=true
+    user=root
+    logfile=/var/log/supervisor/supervisord.log
+    pidfile=/run/supervisord.pid
+    
+    [program:kamailio]
+    command=/usr/sbin/kamailio -DD -E -e
+    autostart=true
+    autorestart=true
+    stdout_logfile=/var/log/kamailio/kamailio.log
+    stderr_logfile=/var/log/kamailio/kamailio_error.log
+    user=root
+    
+    [program:api-server]
+    command=python3 -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    directory=/app
+    autostart=true
+    autorestart=true
+    stdout_logfile=/var/log/api-server.log
+    stderr_logfile=/var/log/api-server_error.log
+    environment=PYTHONPATH="/app"
+    
+    [program:websocket-bridge]
+    command=python3 -m src.websocket.bridge
+    directory=/app
+    autostart=true
+    autorestart=true
+    stdout_logfile=/var/log/websocket-bridge.log
+    stderr_logfile=/var/log/websocket-bridge_error.log
+    environment=PYTHONPATH="/app"
+    EOF
+    
+    # Test Kamailio configuration
+    echo "Testing Kamailio configuration..."
+    kamailio -c -f /etc/kamailio/kamailio.cfg
+    
+    if [ $? -ne 0 ]; then
+        echo "Kamailio configuration test failed!"
+        exit 1
+    fi
+    
+    echo "Starting supervisor..."
+    exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sip-server-app
+  namespace: sip-system
+data:
+  main.py: |
+    """Minimal SIP Server API for MicroK8s deployment."""
+    from fastapi import FastAPI, HTTPException
+    from pydantic import BaseModel
+    from datetime import datetime
+    import logging
+    import os
+    
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    app = FastAPI(
+        title="Olib AI SIP Server",
+        description="SIP Server API for conversational AI platform",
+        version="1.0.0"
+    )
+    
+    class HealthResponse(BaseModel):
+        status: str
+        timestamp: str
+        database_connected: bool
+        kamailio_running: bool
+        
+    class CallRequest(BaseModel):
+        from_number: str
+        to_number: str
+        webhook_url: str = None
+        
+    class SMSRequest(BaseModel):
+        from_number: str
+        to_number: str
+        message: str
+        
+    @app.get("/health", response_model=HealthResponse)
+    async def health_check():
+        """Health check endpoint."""
+        # Basic health check
+        db_connected = await check_database()
+        kamailio_running = await check_kamailio()
+        
+        status = "healthy" if db_connected and kamailio_running else "degraded"
+        
+        return HealthResponse(
+            status=status,
+            timestamp=datetime.utcnow().isoformat(),
+            database_connected=db_connected,
+            kamailio_running=kamailio_running
+        )
+    
+    @app.post("/api/calls/initiate")
+    async def initiate_call(call_request: CallRequest):
+        """Initiate an outgoing call."""
+        logger.info(f"Call request from {call_request.from_number} to {call_request.to_number}")
+        
+        # For now, return success - will implement actual SIP logic later
+        return {
+            "call_id": f"call_{datetime.utcnow().timestamp()}",
+            "status": "initiated",
+            "from_number": call_request.from_number,
+            "to_number": call_request.to_number
+        }
+    
+    @app.post("/api/sms/send")
+    async def send_sms(sms_request: SMSRequest):
+        """Send an SMS message."""
+        logger.info(f"SMS request from {sms_request.from_number} to {sms_request.to_number}")
+        
+        # For now, return success - will implement actual SMS logic later
+        return {
+            "message_id": f"sms_{datetime.utcnow().timestamp()}",
+            "status": "sent",
+            "from_number": sms_request.from_number,
+            "to_number": sms_request.to_number,
+            "message": sms_request.message
+        }
+    
+    @app.get("/api/calls/active")
+    async def get_active_calls():
+        """Get active calls."""
+        # Return empty list for now
+        return []
+    
+    @app.get("/api/config/status")
+    async def get_server_status():
+        """Get server status."""
+        return {
+            "status": "running",
+            "active_calls": 0,
+            "registered_users": 0,
+            "uptime_seconds": 3600,
+            "version": "1.0.0"
+        }
+    
+    async def check_database():
+        """Check database connectivity."""
+        try:
+            import asyncpg
+            database_url = os.getenv("DATABASE_URL")
+            if not database_url:
+                return False
+            conn = await asyncpg.connect(database_url)
+            await conn.fetchval("SELECT 1")
+            await conn.close()
+            return True
+        except Exception as e:
+            logger.error(f"Database check failed: {e}")
+            return False
+    
+    async def check_kamailio():
+        """Check if Kamailio is running."""
+        import subprocess
+        try:
+            result = subprocess.run(["pgrep", "kamailio"], capture_output=True)
+            return result.returncode == 0
+        except Exception as e:
+            logger.error(f"Kamailio check failed: {e}")
+            return False
+    
+    if __name__ == "__main__":
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+        
+  bridge.py: |
+    """Production WebSocket bridge for MicroK8s deployment."""
+    import asyncio
+    import os
+    import logging
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+    
+    async def main():
+        """Main entry point for WebSocket bridge."""
+        try:
+            # Import the advanced bridge
+            from src.websocket.bridge import WebSocketBridge
+            
+            # Get configuration from environment
+            ai_platform_url = os.getenv("AI_PLATFORM_URL", "ws://ai-platform-service:8001/ws/voice")
+            sip_ws_port = int(os.getenv("SIP_WS_PORT", "8080"))
+            rtp_port_start = int(os.getenv("RTP_PORT_START", "10000"))
+            rtp_port_end = int(os.getenv("RTP_PORT_END", "20000"))
+            
+            logger.info(f"Starting WebSocket bridge...")
+            logger.info(f"AI Platform URL: {ai_platform_url}")
+            logger.info(f"SIP WebSocket Port: {sip_ws_port}")
+            logger.info(f"RTP Port Range: {rtp_port_start}-{rtp_port_end}")
+            
+            # Create and start bridge
+            bridge = WebSocketBridge(
+                ai_platform_url=ai_platform_url,
+                sip_ws_port=sip_ws_port,
+                rtp_port_range=(rtp_port_start, rtp_port_end)
+            )
+            
+            await bridge.start()
+            
+        except ImportError as e:
+            # Fallback to simple bridge if advanced modules not available
+            logger.warning(f"Advanced bridge not available: {e}")
+            logger.info("Starting simple WebSocket bridge...")
+            
+            import websockets
+            import json
+            
+            async def handle_connection(websocket, path):
+                logger.info(f"New connection from {path}")
+                try:
+                    async for message in websocket:
+                        logger.info(f"Received: {message}")
+                        # Simple echo for testing
+                        response = {
+                            "type": "echo",
+                            "original": message,
+                            "timestamp": asyncio.get_event_loop().time()
+                        }
+                        await websocket.send(json.dumps(response))
+                except websockets.exceptions.ConnectionClosed:
+                    logger.info("Connection closed")
+                except Exception as e:
+                    logger.error(f"Connection error: {e}")
+            
+            # Start simple WebSocket server
+            server = await websockets.serve(handle_connection, "0.0.0.0", 8080)
+            logger.info("Simple WebSocket bridge started on port 8080")
+            await server.wait_closed()
+            
+        except Exception as e:
+            logger.error(f"Failed to start WebSocket bridge: {e}")
+            raise
+    
+    if __name__ == "__main__":
+        asyncio.run(main())

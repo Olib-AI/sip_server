@@ -1,0 +1,369 @@
+---
+# Strict Network Policies for Production Environment
+# This file contains more restrictive policies suitable for production
+# Apply these after the basic policies are working
+
+# First, create a default deny-all policy for the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all-traffic
+  namespace: sip-system
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  egress:
+  # Only allow DNS by default
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+
+---
+# PostgreSQL - Strict Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-strict-policy
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Only allow from SIP server with specific label
+  - from:
+    - podSelector:
+        matchLabels:
+          app: sip-server
+          component: backend
+    - podSelector:
+        matchLabels:
+          app: sip-server
+          component: api
+    ports:
+    - protocol: TCP
+      port: 5432
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# SIP Server API - Strict Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sip-api-strict-policy
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+      component: api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # API access only from specific services
+  - from:
+    # From ingress controller
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: ingress-nginx
+    # From monitoring
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app: prometheus
+    # From admin tools in same namespace
+    - podSelector:
+        matchLabels:
+          app: admin-tools
+    ports:
+    - protocol: TCP
+      port: 8000
+  
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # PostgreSQL
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  
+  # Webhook endpoints (specific IPs only)
+  - to:
+    - ipBlock:
+        cidr: 10.0.0.0/24  # Internal webhook service subnet
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+
+---
+# SIP Server Core - Strict Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sip-core-strict-policy
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+      component: core
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # SIP from specific VOIP provider ranges only
+  - from:
+    # Twilio IP ranges
+    - ipBlock:
+        cidr: 54.172.60.0/23
+    - ipBlock:
+        cidr: 34.203.250.0/23
+    - ipBlock:
+        cidr: 52.215.127.0/24
+    - ipBlock:
+        cidr: 3.122.181.0/24
+    # Vonage IP ranges
+    - ipBlock:
+        cidr: 174.37.245.0/24
+    - ipBlock:
+        cidr: 174.36.196.0/24
+    # Add your VOIP provider IPs here
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: TCP
+      port: 5061
+  
+  # RTP media from same sources
+  - from:
+    # Same IP blocks as above
+    - ipBlock:
+        cidr: 54.172.60.0/23
+    - ipBlock:
+        cidr: 34.203.250.0/23
+    - ipBlock:
+        cidr: 174.37.245.0/24
+    - ipBlock:
+        cidr: 174.36.196.0/24
+    ports:
+    - protocol: UDP
+      port: 10000
+      endPort: 20000
+  
+  # Internal WebSocket connections
+  - from:
+    - podSelector:
+        matchLabels:
+          app: sip-server
+          component: websocket
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # SIP to VOIP providers
+  - to:
+    # Twilio
+    - ipBlock:
+        cidr: 54.172.60.0/23
+    - ipBlock:
+        cidr: 34.203.250.0/23
+    # Vonage
+    - ipBlock:
+        cidr: 174.37.245.0/24
+    - ipBlock:
+        cidr: 174.36.196.0/24
+    ports:
+    - protocol: UDP
+      port: 5060
+    - protocol: TCP
+      port: 5060
+    - protocol: TCP
+      port: 5061
+    - protocol: UDP
+      port: 10000
+      endPort: 60000
+  
+  # API callbacks
+  - to:
+    - podSelector:
+        matchLabels:
+          app: sip-server
+          component: api
+    ports:
+    - protocol: TCP
+      port: 8000
+
+---
+# WebSocket Bridge - Strict Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: websocket-bridge-strict-policy
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+      component: websocket
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # From SIP core only
+  - from:
+    - podSelector:
+        matchLabels:
+          app: sip-server
+          component: core
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # AI Platform (internal)
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ai-platform
+    ports:
+    - protocol: TCP
+      port: 8001
+  
+  # AI Platform (external - specific IPs)
+  - to:
+    - ipBlock:
+        cidr: 35.247.0.0/16  # Example: GCP region for AI service
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 8001
+
+---
+# Egress to specific external services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: external-services-egress
+  namespace: sip-system
+spec:
+  podSelector:
+    matchLabels:
+      app: sip-server
+  policyTypes:
+  - Egress
+  egress:
+  # Time sync (NTP)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: UDP
+      port: 123
+  
+  # Certificate validation (OCSP)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+
+---
+# Temporary policy for troubleshooting
+# DELETE THIS IN PRODUCTION
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: troubleshooting-allow-all
+  namespace: sip-system
+  labels:
+    purpose: troubleshooting
+    delete-me: "true"
+spec:
+  podSelector:
+    matchLabels:
+      debug: "true"
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {}
+  egress:
+  - {}

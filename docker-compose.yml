@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: kamailio
+      POSTGRES_PASSWORD: kamailiopw
+      POSTGRES_DB: kamailio
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kamailio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sip-server:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://kamailio:kamailiopw@postgres/kamailio
+      JWT_SECRET_KEY: development-secret-key-change-in-production
+      AI_PLATFORM_URL: ws://host.docker.internal:8001/ws/voice
+      KAMAILIO_SHARED_MEMORY: 256
+      KAMAILIO_PKG_MEMORY: 32
+    ports:
+      # SIP ports
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5061:5061/tcp"
+      # API port
+      - "8000:8000"
+      # WebSocket bridge port
+      - "8080:8080"
+      # RTP ports (reduced range for local testing)
+      - "10000-10100:10000-10100/udp"
+    volumes:
+      - ./logs:/var/log
+      - ./config:/app/config:ro
+    networks:
+      - sip-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Optional: Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - sip-network
+    volumes:
+      - redis_data:/data
+
+  # Optional: Monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - sip-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # Optional: Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - sip-network
+    depends_on:
+      - prometheus
+
+networks:
+  sip-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
