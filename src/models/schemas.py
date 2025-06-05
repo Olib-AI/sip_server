@@ -1,5 +1,5 @@
 """Pydantic schemas for API models."""
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -31,7 +31,8 @@ class CallInitiate(BaseModel):
     webhook_url: Optional[str] = Field(None, description="Webhook URL for call events")
     timeout: Optional[int] = Field(60, description="Call timeout in seconds")
     
-    @validator('from_number', 'to_number')
+    @field_validator('from_number', 'to_number')
+    @classmethod
     def validate_phone_number(cls, v):
         # Basic phone number validation
         if not v or len(v) < 10:

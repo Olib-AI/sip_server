@@ -4,8 +4,8 @@ from fastapi.testclient import TestClient
 from datetime import datetime
 import json
 
-from ..api.main import app
-from ..models.schemas import CallInfo, SMSInfo, CallStatus, SMSStatus
+from src.api.main import app
+from src.models.schemas import CallInfo, SMSInfo, CallStatus, SMSStatus
 
 
 @pytest.fixture

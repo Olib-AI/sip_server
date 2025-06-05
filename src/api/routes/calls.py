@@ -222,7 +222,7 @@ async def resume_call(
 @router.post("/{call_id}/dtmf")
 async def send_dtmf(
     call_id: str,
-    digits: str = Query(..., regex="^[0-9*#]+$"),
+    digits: str = Query(..., pattern="^[0-9*#]+$"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):

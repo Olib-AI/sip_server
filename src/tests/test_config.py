@@ -116,13 +116,13 @@ class TestConfigIntegration:
     
     def test_config_reload(self):
         """Test configuration reload functionality."""
-        # Set initial environment
-        with patch.dict(os.environ, {'API_PORT': '8080'}):
-            config1 = get_config()
+        # Set initial environment (clear any .env file influence)
+        with patch.dict(os.environ, {'API_PORT': '8080'}, clear=True):
+            config1 = reload_config()  # Force reload to clear cache
             assert config1.api.port == 8080
         
         # Change environment and reload
-        with patch.dict(os.environ, {'API_PORT': '9090'}):
+        with patch.dict(os.environ, {'API_PORT': '9090'}, clear=True):
             config2 = reload_config()
             assert config2.api.port == 9090
     
