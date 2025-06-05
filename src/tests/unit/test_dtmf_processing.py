@@ -22,17 +22,18 @@ class TestDTMFDetector:
     """Test DTMF detection functionality."""
     
     @pytest.fixture
-    async def dtmf_detector(self):
+    def dtmf_detector(self):
         """Create test DTMF detector."""
         detector = DTMFDetector(enable_rfc2833=True, enable_inband=True)
         yield detector
-        detector.cleanup()
+        # No cleanup method exists in DTMFDetector
     
     def test_dtmf_detector_initialization(self, dtmf_detector):
         """Test DTMF detector initialization."""
         assert dtmf_detector.enable_rfc2833 is True
         assert dtmf_detector.enable_inband is True
-        assert len(dtmf_detector.active_calls) == 0
+        assert dtmf_detector.rfc2833_detector is not None
+        assert dtmf_detector.inband_detector is not None
         assert len(dtmf_detector.event_handlers) == 0
     
     def test_dtmf_digit_values(self):
