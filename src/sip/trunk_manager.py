@@ -12,6 +12,7 @@ from sqlalchemy import create_engine, select, insert, update, delete
 import os
 
 from ..models.database import Dispatcher, TrunkConfiguration, get_db, DATABASE_URL
+from ..utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -132,8 +133,9 @@ class TrunkConfig:
 class SIPTrunkManager:
     """Manager for SIP trunk connections."""
     
-    def __init__(self, kamailio_rpc_url: str = "http://localhost:5060/RPC"):
-        self.kamailio_rpc_url = kamailio_rpc_url
+    def __init__(self, kamailio_rpc_url: Optional[str] = None):
+        config = get_config()
+        self.kamailio_rpc_url = kamailio_rpc_url or f"http://{config.sip.host}:{config.sip.port}/RPC"
         self.trunks: Dict[str, TrunkConfig] = {}
         self.active_calls: Dict[str, str] = {}  # call_id -> trunk_id
         

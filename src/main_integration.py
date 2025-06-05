@@ -7,9 +7,10 @@ from typing import Optional
 import json
 import os
 
-from call_handling.call_manager import CallManager
-from call_handling.websocket_integration import WebSocketCallBridge
-from api.sip_integration import initialize_services, start_api_server
+from .call_handling.call_manager import CallManager
+from .call_handling.websocket_integration import WebSocketCallBridge
+from .api.sip_integration import initialize_services, start_api_server
+from .utils.config import get_config, AppConfig
 
 # Configure logging
 logging.basicConfig(
@@ -27,48 +28,55 @@ logger = logging.getLogger(__name__)
 class SIPIntegrationServer:
     """Main SIP integration server."""
     
-    def __init__(self, config_path: Optional[str] = None):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: Optional[str] = None, env_file: Optional[str] = None):
+        self.app_config = get_config(env_file)
+        self.config = self.app_config.to_dict()  # For backwards compatibility
         self.call_manager: Optional[CallManager] = None
         self.websocket_bridge: Optional[WebSocketCallBridge] = None
         self.api_server_task: Optional[asyncio.Task] = None
         self.websocket_task: Optional[asyncio.Task] = None
         self.is_running = False
         
-    def _load_config(self, config_path: Optional[str]) -> dict:
-        """Load configuration from file or use defaults."""
-        default_config = {
-            "call_manager": {
-                "max_concurrent_calls": 1000,
-                "default_codec": "PCMU"
-            },
-            "websocket": {
-                "ai_platform_url": "ws://127.0.0.1:8080/ws",
-                "port": 8080
-            },
-            "api": {
-                "host": "0.0.0.0",
-                "port": 8080
-            },
-            "logging": {
-                "level": "INFO"
-            }
-        }
+        # Override with JSON config file if provided
+        if config_path:
+            self._load_json_config(config_path)
         
-        if config_path and os.path.exists(config_path):
+        # Configure logging based on loaded config
+        self._configure_logging()
+        logger.info(f"Configuration loaded from environment variables")
+        
+    def _load_json_config(self, config_path: str):
+        """Load and merge JSON configuration file."""
+        if os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
                     file_config = json.load(f)
-                    # Merge with defaults
-                    default_config.update(file_config)
-                logger.info(f"Loaded configuration from {config_path}")
+                    # Merge with environment config
+                    self._merge_config(self.config, file_config)
+                logger.info(f"Merged configuration from {config_path}")
             except Exception as e:
                 logger.warning(f"Failed to load config from {config_path}: {e}")
-                logger.info("Using default configuration")
-        else:
-            logger.info("Using default configuration")
-        
-        return default_config
+    
+    def _merge_config(self, base: dict, override: dict):
+        """Recursively merge configuration dictionaries."""
+        for key, value in override.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                self._merge_config(base[key], value)
+            else:
+                base[key] = value
+    
+    def _configure_logging(self):
+        """Configure logging based on configuration."""
+        log_level = getattr(logging, self.app_config.logging.level.upper(), logging.INFO)
+        logging.basicConfig(
+            level=log_level,
+            format=self.app_config.logging.format,
+            handlers=[
+                logging.StreamHandler(),
+                logging.FileHandler('sip_integration.log')
+            ],
+            force=True  # Reconfigure logging
+        )
     
     async def start(self):
         """Start all services."""
@@ -90,7 +98,8 @@ class SIPIntegrationServer:
             logger.info("Initializing WebSocket bridge...")
             self.websocket_bridge = WebSocketCallBridge(
                 call_manager=self.call_manager,
-                ai_websocket_url=self.config["websocket"]["ai_platform_url"]
+                ai_websocket_url=self.config["websocket"]["ai_platform_url"],
+                port=self.config["websocket"]["port"]
             )
             
             # Initialize API services
@@ -170,15 +179,19 @@ async def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="SIP Integration Server")
-    parser.add_argument("--config", help="Configuration file path")
-    parser.add_argument("--log-level", default="INFO", help="Logging level")
+    parser.add_argument("--config", help="JSON configuration file path")
+    parser.add_argument("--env-file", help="Environment file path (.env)")
+    parser.add_argument("--log-level", help="Logging level (overrides env config)")
     args = parser.parse_args()
     
-    # Set logging level
-    logging.getLogger().setLevel(getattr(logging, args.log_level.upper()))
-    
     # Create and start server
-    server = SIPIntegrationServer(config_path=args.config)
+    server = SIPIntegrationServer(config_path=args.config, env_file=args.env_file)
+    
+    # Override log level if provided via command line
+    if args.log_level:
+        log_level = getattr(logging, args.log_level.upper(), logging.INFO)
+        logging.getLogger().setLevel(log_level)
+    
     server.setup_signal_handlers()
     
     try:

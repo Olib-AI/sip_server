@@ -87,20 +87,52 @@ docker compose up -d
 ## Testing Commands
 
 ```bash
-# Check service health
-docker compose exec sip-server curl -f http://localhost:8000/health
+# Check service health - SIP Integration API
+docker compose exec sip-server curl -f http://localhost:8080/health
 
 # Test Kamailio config
 docker compose exec sip-server kamailio -c -f /etc/kamailio/kamailio.cfg
 
-# Check RTP bridge status
-docker compose exec sip-server netstat -tuln | grep 12221
+# Check SIP Integration server status
+docker compose exec sip-server curl -f http://localhost:8080/api/sip/statistics
 
-# Run unit tests
-docker compose exec sip-server python3 -m pytest src/tests/ -v
+# Run all tests
+docker compose exec sip-server python3 -m pytest src/tests/ tests/ -v
+
+# Run specific test modules
+docker compose exec sip-server python3 -m pytest tests/unit/ -v
+docker compose exec sip-server python3 -m pytest tests/integration/ -v
+docker compose exec sip-server python3 -m pytest tests/e2e/ -v
+
+# Test with coverage
+docker compose exec sip-server python3 -m pytest src/tests/ tests/ --cov=src --cov-report=html
 
 # Check database connection
-docker compose exec sip-server python3 -c "from src.models.database import get_db_connection; print('DB OK' if get_db_connection() else 'DB FAIL')"
+docker compose exec sip-server python3 -c "
+from src.models.database import SessionLocal
+try:
+    with SessionLocal() as session:
+        session.execute('SELECT 1').fetchone()
+    print('✅ SIP Database OK')
+except Exception as e:
+    print(f'❌ SIP Database FAIL: {e}')
+"
+
+# Test module imports
+docker compose exec sip-server python3 -c "
+import sys; sys.path.insert(0, '/app')
+from src.main_integration import SIPIntegrationServer
+from src.call_handling.call_manager import CallManager
+from src.call_handling.websocket_integration import WebSocketCallBridge
+from src.api.sip_integration import app
+print('✅ All modules import successfully')
+"
+
+# Check WebSocket server (should be listening on 8080)
+docker compose exec sip-server netstat -tuln | grep 8080
+
+# Test SIP endpoints
+docker compose exec sip-server curl -f http://localhost:8080/api/sip/calls/active
 ```
 
 ## Emergency Recovery

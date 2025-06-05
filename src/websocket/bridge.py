@@ -21,6 +21,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ..audio.codecs import AudioProcessor
 from ..audio.rtp import RTPManager, RTPSession, RTPStatistics
+from ..utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ class ConnectionManager:
                 "direction": "incoming",
                 "sip_headers": call_info.sip_headers,
                 "codec": call_info.codec,
-                "sample_rate": 8000
+                "sample_rate": get_config().audio.sample_rate
             }
         }
         await connection.send(json.dumps(auth_message))
@@ -263,16 +264,17 @@ class ConnectionManager:
 class WebSocketBridge:
     """Advanced WebSocket bridge between SIP server and AI platform."""
     
-    def __init__(self, ai_platform_url: str, sip_ws_port: int = 8080,
-                 rtp_port_range: tuple = (10000, 20000)):
-        self.ai_platform_url = ai_platform_url
-        self.sip_ws_port = sip_ws_port
-        self.rtp_port_range = rtp_port_range
+    def __init__(self, ai_platform_url: Optional[str] = None, sip_ws_port: Optional[int] = None,
+                 rtp_port_range: Optional[tuple] = None):
+        config = get_config()
+        self.ai_platform_url = ai_platform_url or config.websocket.ai_platform_url
+        self.sip_ws_port = sip_ws_port or config.websocket.port
+        self.rtp_port_range = rtp_port_range or (config.audio.rtp_port_start, config.audio.rtp_port_end)
         
         # Core components
         self.audio_processor = AudioProcessor()
-        self.rtp_manager = RTPManager(rtp_port_range)
-        self.connection_manager = ConnectionManager(ai_platform_url)
+        self.rtp_manager = RTPManager(self.rtp_port_range)
+        self.connection_manager = ConnectionManager(self.ai_platform_url)
         
         # Call tracking
         self.active_calls: Dict[str, CallInfo] = {}
@@ -357,11 +359,8 @@ async def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # AI platform WebSocket URL - updated for SIP integration
-    ai_platform_url = "ws://localhost:8001/sip/ws"  # SIP-specific endpoint
-    
-    # Create and start bridge
-    bridge = WebSocketBridge(ai_platform_url)
+    # Create and start bridge with default configuration
+    bridge = WebSocketBridge()
     await bridge.start()
 
 

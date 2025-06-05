@@ -6,9 +6,11 @@ from sqlalchemy.pool import NullPool
 from datetime import datetime
 import os
 from typing import Optional
+from ..utils.config import get_config
 
-# Database URL from environment or default
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://kamailio:kamailiopw@localhost/kamailio")
+# Get database configuration
+config = get_config()
+DATABASE_URL = config.database.url
 
 # Create engine
 engine = create_engine(

@@ -98,30 +98,8 @@ RUN echo '[supervisord]' > /etc/supervisord.conf && \
     echo 'priority=200' >> /etc/supervisord.conf && \
     echo 'startsecs=5' >> /etc/supervisord.conf && \
     echo '' >> /etc/supervisord.conf && \
-    echo '[program:websocket-bridge]' >> /etc/supervisord.conf && \
-    echo 'command=python3 -m src.websocket.bridge' >> /etc/supervisord.conf && \
-    echo 'directory=/app' >> /etc/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
-    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf && \
-    echo '' >> /etc/supervisord.conf && \
-    echo '[program:api-server]' >> /etc/supervisord.conf && \
-    echo 'command=python3 -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000' >> /etc/supervisord.conf && \
-    echo 'directory=/app' >> /etc/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
-    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf && \
-    echo '' >> /etc/supervisord.conf && \
-    echo '[program:rtp-bridge]' >> /etc/supervisord.conf && \
-    echo 'command=python3 -m src.media.rtp_bridge' >> /etc/supervisord.conf && \
+    echo '[program:sip-integration]' >> /etc/supervisord.conf && \
+    echo 'command=python3 -m src.main_integration' >> /etc/supervisord.conf && \
     echo 'directory=/app' >> /etc/supervisord.conf && \
     echo 'autostart=true' >> /etc/supervisord.conf && \
     echo 'autorestart=true' >> /etc/supervisord.conf && \
@@ -138,17 +116,12 @@ RUN chmod +x /app/scripts/startup.sh
 # Expose ports
 EXPOSE 5060/udp 5060/tcp 5061/tcp 8000 8080 10000-20000/udp
 
-# Environment variables
-ENV PYTHONPATH=/app \
-    KAMAILIO_SHARED_MEMORY=256 \
-    KAMAILIO_PKG_MEMORY=32 \
-    DATABASE_URL=postgresql://kamailio:kamailiopw@postgres/kamailio \
-    JWT_SECRET_KEY=change-this-secret-key-in-production \
-    AI_PLATFORM_URL=ws://ai-platform:8001/ws/voice
+# Environment variables (defaults - use .env file to override)
+ENV PYTHONPATH=/app
 
-# Health check
+# Health check (use configurable API port)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${API_PORT:-8080}/health || exit 1
 
 # Run startup script
 CMD ["/app/scripts/startup.sh"]

@@ -127,6 +127,13 @@ class DTMFProcessor:
         self.custom_handlers[name] = handler
         logger.info(f"Added custom DTMF handler: {name}")
     
+    def add_event_handler(self, handler: Callable):
+        """Add DTMF event handler."""
+        # For compatibility with IVRManager expecting this method
+        # We'll treat this as a custom handler
+        self.add_custom_handler("ivr_handler", handler)
+        logger.info(f"Added DTMF event handler")
+    
     async def process_dtmf_event(self, event: DTMFEvent) -> Optional[Dict[str, Any]]:
         """Process incoming DTMF event."""
         try:

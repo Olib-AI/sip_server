@@ -54,29 +54,55 @@ mkdir -p /var/log/kamailio
 mkdir -p /var/log
 
 # Test services individually first
-echo "Testing API server..."
+echo "Testing SIP integration modules..."
 cd /app
 python3 -c "
 import sys
 sys.path.insert(0, '/app')
 try:
-    from src.api.main import app
-    print('✅ API server imports successfully')
+    from src.api.sip_integration import app
+    print('✅ SIP API integration imports successfully')
 except Exception as e:
-    print(f'❌ API server import failed: {e}')
+    print(f'❌ SIP API integration import failed: {e}')
     import traceback
     traceback.print_exc()
 "
 
-echo "Testing WebSocket bridge..."
+echo "Testing call manager..."
 python3 -c "
 import sys
 sys.path.insert(0, '/app')
 try:
-    from src.websocket.bridge import WebSocketBridge
-    print('✅ WebSocket bridge imports successfully')
+    from src.call_handling.call_manager import CallManager
+    print('✅ Call manager imports successfully')
 except Exception as e:
-    print(f'❌ WebSocket bridge import failed: {e}')
+    print(f'❌ Call manager import failed: {e}')
+    import traceback
+    traceback.print_exc()
+"
+
+echo "Testing WebSocket integration..."
+python3 -c "
+import sys
+sys.path.insert(0, '/app')
+try:
+    from src.call_handling.websocket_integration import WebSocketCallBridge
+    print('✅ WebSocket integration imports successfully')
+except Exception as e:
+    print(f'❌ WebSocket integration import failed: {e}')
+    import traceback
+    traceback.print_exc()
+"
+
+echo "Testing main integration..."
+python3 -c "
+import sys
+sys.path.insert(0, '/app')
+try:
+    from src.main_integration import SIPIntegrationServer
+    print('✅ Main integration imports successfully')
+except Exception as e:
+    print(f'❌ Main integration import failed: {e}')
     import traceback
     traceback.print_exc()
 "

@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 class WebSocketCallBridge:
     """Bridge between SIP call manager and AI platform WebSocket."""
     
-    def __init__(self, call_manager: CallManager, ai_websocket_url: str = "ws://127.0.0.1:8080/ws"):
+    def __init__(self, call_manager: CallManager, ai_websocket_url: str = "ws://127.0.0.1:8081/ws", port: int = 8081):
         self.call_manager = call_manager
         self.ai_websocket_url = ai_websocket_url
+        self.port = port
         self.rtp_manager = RTPManager()
         self.audio_processor = AudioProcessor()
         
@@ -80,16 +81,16 @@ class WebSocketCallBridge:
                     # Cleanup connection
                     await self._cleanup_websocket_connection(websocket)
             
-            # Start server on port 8080
+            # Start server on configured port
             server = await websockets.serve(
                 websocket_handler,
                 "0.0.0.0",
-                8080,
+                self.port,
                 subprotocols=["sip-bridge"],
                 compression=None  # Disable compression for real-time audio
             )
             
-            logger.info("WebSocket server started on port 8080")
+            logger.info(f"WebSocket server started on port {self.port}")
             return server
             
         except Exception as e:

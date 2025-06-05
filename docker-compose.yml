@@ -1,12 +1,12 @@
-version: '3.8'
+# Docker Compose configuration for SIP Server
 
 services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: kamailio
-      POSTGRES_PASSWORD: kamailiopw
-      POSTGRES_DB: kamailio
+      POSTGRES_USER: ${DB_USER:-kamailio}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-kamailiopw}
+      POSTGRES_DB: ${DB_NAME:-kamailio}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -24,23 +24,25 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://kamailio:kamailiopw@postgres:5432/kamailio
-      JWT_SECRET_KEY: development-secret-key-change-in-production
-      AI_PLATFORM_URL: ws://host.docker.internal:8001/ws/voice
-      KAMAILIO_SHARED_MEMORY: 256
-      KAMAILIO_PKG_MEMORY: 32
+      # Override specific Docker environment values
+      DB_HOST: postgres
+      AI_PLATFORM_WS_URL: ${AI_PLATFORM_WS_URL:-ws://host.docker.internal:8001/ws/voice}
+      KAMAILIO_SHARED_MEMORY: ${KAMAILIO_SHARED_MEMORY:-256}
+      KAMAILIO_PKG_MEMORY: ${KAMAILIO_PKG_MEMORY:-32}
     ports:
       # SIP ports
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
+      - "${SIP_PORT:-5060}:5060/udp"
+      - "${SIP_PORT:-5060}:5060/tcp"
       - "5061:5061/tcp"
       # API port
-      - "8000:8000"
+      - "${API_PORT:-8080}:${API_PORT:-8080}"
       # WebSocket bridge port
-      - "8080:8080"
+      - "${WEBSOCKET_PORT:-8081}:${WEBSOCKET_PORT:-8081}"
       # RTP ports (reduced range for local testing)
-      - "10000-10100:10000-10100/udp"
+      - "${RTP_PORT_RANGE_START:-10000}-${RTP_PORT_RANGE_END:-10100}:${RTP_PORT_RANGE_START:-10000}-${RTP_PORT_RANGE_END:-10100}/udp"
     volumes:
       - ./logs:/var/log
       - ./config:/app/config:ro
@@ -63,7 +65,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -77,7 +79,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
     volumes:
