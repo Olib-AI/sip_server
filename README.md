@@ -83,13 +83,13 @@ cd olib-app/sip_server
 ### 2. Local Development with Docker Compose
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop services
-docker-compose down
+docker compose down
 ```
 
 ### 3. Deploy to Kubernetes (MicroK8s)
