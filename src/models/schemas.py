@@ -45,7 +45,7 @@ class CallInfo(BaseModel):
     from_number: str
     to_number: str
     status: CallStatus
-    direction: str = Field(..., regex="^(inbound|outbound)$")
+    direction: str = Field(..., pattern="^(inbound|outbound)$")
     start_time: datetime
     end_time: Optional[datetime] = None
     duration: Optional[int] = None
@@ -74,7 +74,7 @@ class SMSInfo(BaseModel):
     to_number: str
     message: str
     status: SMSStatus
-    direction: str = Field(..., regex="^(inbound|outbound)$")
+    direction: str = Field(..., pattern="^(inbound|outbound)$")
     timestamp: datetime
     error: Optional[str] = None
     segments: int = Field(1, description="Number of SMS segments")
@@ -119,7 +119,7 @@ class SIPConfig(BaseModel):
 
 class ServerStatus(BaseModel):
     """Schema for server status."""
-    status: str = Field(..., regex="^(healthy|degraded|unhealthy)$")
+    status: str = Field(..., pattern="^(healthy|degraded|unhealthy)$")
     uptime: int = Field(..., description="Uptime in seconds")
     active_calls: int = 0
     total_calls_today: int = 0

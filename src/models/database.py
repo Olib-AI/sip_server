@@ -39,7 +39,7 @@ class CallRecord(Base):
     duration = Column(Integer)  # seconds
     recording_url = Column(String(500))
     transcription = Column(JSON)
-    metadata = Column(JSON)
+    call_metadata = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     __table_args__ = (
@@ -60,7 +60,7 @@ class SMSRecord(Base):
     status = Column(String(20), nullable=False)
     segments = Column(Integer, default=1)
     error_message = Column(String(500))
-    metadata = Column(JSON)
+    sms_metadata = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     delivered_at = Column(DateTime)
 
@@ -77,7 +77,7 @@ class RegisteredNumber(Base):
     domain = Column(String(100), nullable=False)
     capabilities = Column(JSON, default=["voice", "sms"])
     active = Column(Boolean, default=True)
-    metadata = Column(JSON)
+    sms_metadata = Column(JSON)
     registered_at = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime)
     
@@ -136,7 +136,7 @@ class SystemMetrics(Base):
     id = Column(Integer, primary_key=True, index=True)
     metric_type = Column(String(50), index=True, nullable=False)
     value = Column(Float, nullable=False)
-    metadata = Column(JSON)
+    sms_metadata = Column(JSON)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     
     __table_args__ = (
@@ -216,7 +216,7 @@ class TrunkConfiguration(Base):
     successful_calls = Column(Integer, default=0)
     failed_calls = Column(Integer, default=0)
     current_calls = Column(Integer, default=0)
-    metadata = Column(JSON)
+    sms_metadata = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

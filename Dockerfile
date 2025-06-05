@@ -60,29 +60,38 @@ COPY config/kamailio.cfg /etc/kamailio/kamailio.cfg
 RUN echo '[supervisord]' > /etc/supervisord.conf && \
     echo 'nodaemon=true' >> /etc/supervisord.conf && \
     echo 'user=root' >> /etc/supervisord.conf && \
+    echo 'loglevel=info' >> /etc/supervisord.conf && \
     echo '' >> /etc/supervisord.conf && \
     echo '[program:kamailio]' >> /etc/supervisord.conf && \
     echo 'command=/usr/sbin/kamailio -DD -E -e -m 256 -M 32' >> /etc/supervisord.conf && \
     echo 'autostart=true' >> /etc/supervisord.conf && \
     echo 'autorestart=true' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile=/var/log/kamailio/kamailio.log' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile=/var/log/kamailio/kamailio_error.log' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
     echo '' >> /etc/supervisord.conf && \
     echo '[program:websocket-bridge]' >> /etc/supervisord.conf && \
-    echo 'command=python3 -m src.websocket.bridge' >> /etc/supervisord.conf && \
+    echo 'command=python3 src/websocket/bridge.py' >> /etc/supervisord.conf && \
     echo 'directory=/app' >> /etc/supervisord.conf && \
     echo 'autostart=true' >> /etc/supervisord.conf && \
     echo 'autorestart=true' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile=/var/log/websocket-bridge.log' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile=/var/log/websocket-bridge_error.log' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf && \
     echo '' >> /etc/supervisord.conf && \
     echo '[program:api-server]' >> /etc/supervisord.conf && \
     echo 'command=python3 -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000' >> /etc/supervisord.conf && \
     echo 'directory=/app' >> /etc/supervisord.conf && \
     echo 'autostart=true' >> /etc/supervisord.conf && \
     echo 'autorestart=true' >> /etc/supervisord.conf && \
-    echo 'stdout_logfile=/var/log/api-server.log' >> /etc/supervisord.conf && \
-    echo 'stderr_logfile=/var/log/api-server_error.log' >> /etc/supervisord.conf
+    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisord.conf && \
+    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile=/dev/stderr' >> /etc/supervisord.conf && \
+    echo 'stderr_logfile_maxbytes=0' >> /etc/supervisord.conf && \
+    echo 'environment=PYTHONPATH="/app"' >> /etc/supervisord.conf
 
 # Make startup script executable
 RUN chmod +x /app/scripts/startup.sh

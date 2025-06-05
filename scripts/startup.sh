@@ -53,6 +53,42 @@ echo "Creating log directories..."
 mkdir -p /var/log/kamailio
 mkdir -p /var/log
 
+# Test services individually first
+echo "Testing API server..."
+cd /app
+python3 -c "
+import sys
+sys.path.insert(0, '/app')
+try:
+    from src.api.main import app
+    print('✅ API server imports successfully')
+except Exception as e:
+    print(f'❌ API server import failed: {e}')
+    import traceback
+    traceback.print_exc()
+"
+
+echo "Testing WebSocket bridge..."
+python3 -c "
+import sys
+sys.path.insert(0, '/app')
+try:
+    from src.websocket.bridge import WebSocketBridge
+    print('✅ WebSocket bridge imports successfully')
+except Exception as e:
+    print(f'❌ WebSocket bridge import failed: {e}')
+    import traceback
+    traceback.print_exc()
+"
+
+echo "Testing Kamailio config..."
+kamailio -c -f /etc/kamailio/kamailio.cfg
+if [ $? -eq 0 ]; then
+    echo "✅ Kamailio config is valid"
+else
+    echo "❌ Kamailio config has errors"
+fi
+
 # Start supervisord
 echo "Starting services..."
 exec /usr/bin/supervisord -c /etc/supervisord.conf
