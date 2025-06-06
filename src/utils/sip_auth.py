@@ -179,14 +179,21 @@ class SIPAuthenticator:
             )
         
         # Check if account is locked due to failed attempts
-        if (sip_user.account_locked_until and 
-            sip_user.account_locked_until > datetime.now(timezone.utc)):
-            logger.warning(f"SIP authentication failed: account locked - {username}@{realm}")
-            return SIPAuthResponse(
-                authenticated=False,
-                reason="Account temporarily locked",
-                account_locked=True
-            )
+        if sip_user.account_locked_until:
+            current_time = datetime.now(timezone.utc)
+            locked_until = sip_user.account_locked_until
+            
+            # Ensure timezone-aware comparison
+            if locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=timezone.utc)
+            
+            if locked_until > current_time:
+                logger.warning(f"SIP authentication failed: account locked - {username}@{realm}")
+                return SIPAuthResponse(
+                    authenticated=False,
+                    reason="Account temporarily locked",
+                    account_locked=True
+                )
         
         # Validate digest response
         is_valid = self._validate_digest_response(sip_user, auth_request)
