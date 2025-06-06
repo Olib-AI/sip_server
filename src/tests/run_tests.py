@@ -13,6 +13,7 @@ from typing import Dict, List, Any
 import json
 
 # Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def run_command(command: List[str], timeout: int = 300) -> Dict[str, Any]:
@@ -184,9 +185,9 @@ def run_test_suite(category: str = "all", verbose: bool = True) -> Dict[str, Any
     else:
         cmd = base_cmd + [f"src/tests/{category}"]
     
-    # Add markers for organized testing
-    if category != "all":
-        cmd.extend(["-m", category])
+    # Skip markers - not all tests have them
+    # if category != "all":
+    #     cmd.extend(["-m", category])
     
     return run_command(cmd, timeout=600)  # 10 minute timeout
 

@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 from sqlalchemy.pool import NullPool
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from typing import Optional
 from ..utils.config import get_config
@@ -42,7 +42,7 @@ class CallRecord(Base):
     recording_url = Column(String(500))
     transcription = Column(JSON)
     call_metadata = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     __table_args__ = (
         Index('idx_call_time', 'start_time', 'end_time'),
@@ -63,7 +63,7 @@ class SMSRecord(Base):
     segments = Column(Integer, default=1)
     error_message = Column(String(500))
     sms_metadata = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     delivered_at = Column(DateTime)
 
 
@@ -80,7 +80,7 @@ class RegisteredNumber(Base):
     capabilities = Column(JSON, default=["voice", "sms"])
     active = Column(Boolean, default=True)
     sms_metadata = Column(JSON)
-    registered_at = Column(DateTime, default=datetime.utcnow)
+    registered_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_seen = Column(DateTime)
     
     # Relationships
@@ -96,7 +96,7 @@ class BlockedNumber(Base):
     registered_number_id = Column(Integer, ForeignKey("registered_numbers.id"))
     reason = Column(String(500))
     blocked_by = Column(String(100))
-    blocked_at = Column(DateTime, default=datetime.utcnow)
+    blocked_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime, index=True)
     
     # Relationships
@@ -111,7 +111,7 @@ class Configuration(Base):
     key = Column(String(100), unique=True, index=True, nullable=False)
     value = Column(JSON, nullable=False)
     description = Column(String(500))
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     updated_by = Column(String(100))
 
 
@@ -127,7 +127,7 @@ class WebhookLog(Base):
     response_body = Column(String(1000))
     attempts = Column(Integer, default=1)
     success = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     delivered_at = Column(DateTime)
 
 
@@ -139,7 +139,7 @@ class SystemMetrics(Base):
     metric_type = Column(String(50), index=True, nullable=False)
     value = Column(Float, nullable=False)
     sms_metadata = Column(JSON)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     
     __table_args__ = (
         Index('idx_metrics_time', 'metric_type', 'timestamp'),
@@ -158,7 +158,7 @@ class APIUser(Base):
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     last_login = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Dispatcher(Base):
@@ -219,8 +219,8 @@ class TrunkConfiguration(Base):
     failed_calls = Column(Integer, default=0)
     current_calls = Column(Integer, default=0)
     sms_metadata = Column(JSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 # Database initialization

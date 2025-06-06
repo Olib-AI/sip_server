@@ -7,7 +7,7 @@ import time
 from typing import Dict, List, Optional, Callable, Any, Pattern
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class SMSConversation:
     def is_expired(self, timeout_hours: int = 24) -> bool:
         """Check if conversation has expired."""
         from datetime import timedelta
-        return (datetime.utcnow() - self.last_message_time) > timedelta(hours=timeout_hours)
+        return (datetime.now(timezone.utc) - self.last_message_time) > timedelta(hours=timeout_hours)
 
 
 class SMSProcessor:

@@ -1,7 +1,7 @@
 """Pydantic schemas for API models."""
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -85,7 +85,7 @@ class BlockedNumber(BaseModel):
     """Schema for blocked number."""
     number: str = Field(..., description="Phone number to block")
     reason: Optional[str] = Field(None, description="Reason for blocking")
-    blocked_at: datetime = Field(default_factory=datetime.utcnow)
+    blocked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: Optional[datetime] = Field(None, description="When the block expires")
     blocked_by: Optional[str] = None
 
@@ -137,7 +137,7 @@ class CallWebhook(BaseModel):
     from_number: str
     to_number: str
     status: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     headers: Optional[Dict[str, str]] = {}
     metadata: Optional[Dict[str, Any]] = {}
 
@@ -149,7 +149,7 @@ class SMSWebhook(BaseModel):
     to_number: str
     message: str
     status: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     forward_url: Optional[str] = None
 
 
@@ -159,4 +159,4 @@ class RegistrationWebhook(BaseModel):
     domain: str
     contact: str
     expires: int
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

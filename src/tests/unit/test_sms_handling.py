@@ -9,7 +9,7 @@ import json
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.sms.sms_manager import SMSManager, SMSMessage, SMSStatus, SMSDirection
 from src.sms.sms_processor import SMSProcessor, SMSProcessingRule, SMSProcessingAction, SMSProcessingResult
@@ -30,7 +30,7 @@ class TestSMSMessage:
             message=sample_sms_data["message"],
             direction=SMSDirection.INBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         assert message.message_id == sample_sms_data["message_id"]
@@ -65,7 +65,7 @@ class TestSMSMessage:
             message="Valid message",
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         # Note: is_valid() method doesn't exist in SMSMessage class
@@ -80,7 +80,7 @@ class TestSMSMessage:
             message="",  # Empty content
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         # Test that message was set (even if empty)
@@ -95,7 +95,7 @@ class TestSMSMessage:
             message=sample_sms_data["message"],
             direction=SMSDirection.INBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         # Note: to_dict() and from_dict() methods don't exist in SMSMessage class
@@ -132,7 +132,7 @@ class TestSMSQueue:
             message=sample_sms_data["message"],
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         queue_item = QueuedSMSItem(
@@ -160,7 +160,7 @@ class TestSMSQueue:
             message=sample_sms_data["message"],
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         queue_item = QueuedSMSItem(
@@ -190,7 +190,7 @@ class TestSMSQueue:
             message="Low priority message",
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         high_message = SMSMessage(
@@ -200,7 +200,7 @@ class TestSMSQueue:
             message="High priority message",
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now() + timedelta(seconds=1)  # Added later
+            created_at=datetime.now(timezone.utc) + timedelta(seconds=1)  # Added later
         )
         
         # Add priority to messages
@@ -229,7 +229,7 @@ class TestSMSQueue:
             message="Retry test message",
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         queue_item = QueuedSMSItem(
@@ -264,7 +264,7 @@ class TestSMSQueue:
                 message=f"Message {i}",
                 direction=SMSDirection.OUTBOUND,
                 status=SMSStatus.PENDING,
-                created_at=datetime.now()
+                created_at=datetime.now(timezone.utc)
             )
             
             message.priority = SMSQueuePriority.NORMAL
@@ -280,7 +280,7 @@ class TestSMSQueue:
             message="Overflow message",
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         overflow_message.priority = SMSQueuePriority.NORMAL
@@ -299,7 +299,7 @@ class TestSMSQueue:
                 message=f"Priority {priority.value} message",
                 direction=SMSDirection.OUTBOUND,
                 status=SMSStatus.PENDING,
-                created_at=datetime.now()
+                created_at=datetime.now(timezone.utc)
             )
             
             message.priority = priority
@@ -345,7 +345,7 @@ class TestSMSProcessor:
             message=sample_sms_data["message"],
             direction=SMSDirection.INBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         result = await sms_processor.process_inbound_message(message)
@@ -364,7 +364,7 @@ class TestSMSProcessor:
             message=sample_sms_data["message"],
             direction=SMSDirection.OUTBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         result = await sms_processor.process_outbound_message(message)
@@ -383,7 +383,7 @@ class TestSMSProcessor:
             message=sample_sms_data["message"],
             direction=SMSDirection.INBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         # Process message (should send to AI platform)
@@ -412,7 +412,7 @@ class TestSMSProcessor:
             message="URGENT! Click this link to win $1000000!!!",
             direction=SMSDirection.INBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         # Add spam filter
@@ -439,7 +439,7 @@ class TestSMSProcessor:
             message="hello world",  # lowercase
             direction=SMSDirection.INBOUND,
             status=SMSStatus.PENDING,
-            created_at=datetime.now()
+            created_at=datetime.now(timezone.utc)
         )
         
         # Add transformation
@@ -852,7 +852,7 @@ class TestSMSManager:
 #                 message=f"Performance test message {i}",
 #                 direction=SMSDirection.OUTBOUND,
 #                 status=SMSStatus.PENDING,
-#                 created_at=datetime.now()
+#                 created_at=datetime.now(timezone.utc)
 #             )
 #             messages.append(QueuedSMSItem(message, SMSQueuePriority.NORMAL))
 #         
@@ -892,7 +892,7 @@ class TestSMSManager:
 #                 message=f"Memory test message {i} with some additional content to increase size",
 #                 direction=SMSDirection.OUTBOUND,
 #                 status=SMSStatus.PENDING,
-#                 created_at=datetime.now()
+#                 created_at=datetime.now(timezone.utc)
 #             )
 #             messages.append(message)
 #         

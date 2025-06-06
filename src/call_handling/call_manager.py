@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Callable, Set, Any
 from dataclasses import dataclass, field
 from enum import Enum
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict, deque
 
 # DTMF and Interactive Features
@@ -117,13 +117,13 @@ class CallSession:
         if self.connect_time and self.end_time:
             return (self.end_time - self.connect_time).total_seconds()
         elif self.connect_time:
-            return (datetime.utcnow() - self.connect_time).total_seconds()
+            return (datetime.now(timezone.utc) - self.connect_time).total_seconds()
         return None
     
     def ring_duration(self) -> Optional[float]:
         """Calculate ring duration in seconds."""
         if self.ring_start:
-            end_time = self.connect_time or self.end_time or datetime.utcnow()
+            end_time = self.connect_time or self.end_time or datetime.now(timezone.utc)
             return (end_time - self.ring_start).total_seconds()
         return None
 
@@ -181,7 +181,7 @@ class CallQueue:
     
     def cleanup_expired(self) -> List[CallSession]:
         """Remove expired calls from queue."""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         expired_calls = []
         
         for call in list(self.queued_calls):
@@ -211,7 +211,7 @@ class CallQueue:
         if not self.queued_calls:
             return 0.0
             
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         total_wait = sum(
             (current_time - call.created_at).total_seconds()
             for call in self.queued_calls
@@ -348,7 +348,7 @@ class KamailioStateSynchronizer:
                     "call_id": call_session.call_id,
                     "sip_call_id": call_session.sip_call_id,
                     "state": kamailio_state,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "from_number": call_session.caller.number,
                     "to_number": call_session.callee.number
                 }
@@ -614,7 +614,7 @@ class CallManager:
                     number=to_number,
                     is_registered=await self._is_number_registered(to_number)
                 ),
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
                 sip_call_id=sip_data.get("sip_call_id"),
                 sip_headers=sip_data.get("headers", {})
             )
@@ -669,7 +669,7 @@ class CallManager:
                     number=to_number,
                     display_name=call_data.get("callee_name")
                 ),
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
                 custom_data=call_data.get("custom_data", {})
             )
             
@@ -711,7 +711,7 @@ class CallManager:
         call_session.state = new_state
         
         # Update timing based on state
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if new_state == CallState.RINGING and not call_session.ring_start:
             call_session.ring_start = now
         elif new_state == CallState.CONNECTED and not call_session.connect_time:
@@ -967,7 +967,7 @@ class CallManager:
         
         # Update state
         call_session.state = CallState.RINGING
-        call_session.ring_start = datetime.utcnow()
+        call_session.ring_start = datetime.now(timezone.utc)
         
         # Notify Kamailio about call creation
         await self.kamailio_sync.notify_call_creation(call_session)

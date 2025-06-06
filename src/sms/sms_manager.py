@@ -6,7 +6,7 @@ import uuid
 from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import re
 
@@ -100,7 +100,7 @@ class SMSMessage:
     
     def is_expired(self) -> bool:
         """Check if message has expired."""
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
     
     def can_retry(self) -> bool:
         """Check if message can be retried."""
@@ -252,7 +252,7 @@ class SMSManager:
                 message=message,
                 direction=SMSDirection.OUTBOUND,
                 status=SMSStatus.PENDING,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
                 priority=priority,
                 webhook_url=webhook_url,
                 custom_data=custom_data or {}
@@ -305,8 +305,8 @@ class SMSManager:
                 message=message_body,
                 direction=SMSDirection.INBOUND,
                 status=SMSStatus.DELIVERED,  # Inbound messages are already delivered
-                created_at=datetime.utcnow(),
-                delivered_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                delivered_at=datetime.now(timezone.utc),
                 sip_call_id=sip_call_id,
                 sip_headers=headers
             )
@@ -522,7 +522,7 @@ class SMSManager:
             
             if result.get("success"):
                 # Message sent successfully
-                message.sent_at = datetime.utcnow()
+                message.sent_at = datetime.now(timezone.utc)
                 await self._update_message_status(message.message_id, SMSStatus.SENT)
                 
                 # Start delivery confirmation timer
@@ -585,7 +585,7 @@ class SMSManager:
             if message and message.status == SMSStatus.SENT:
                 # No delivery confirmation received, assume delivered
                 await self._update_message_status(message_id, SMSStatus.DELIVERED)
-                message.delivered_at = datetime.utcnow()
+                message.delivered_at = datetime.now(timezone.utc)
                 
                 await self._emit_event("sms_delivered", message)
                 
@@ -616,7 +616,7 @@ class SMSManager:
         try:
             while True:
                 try:
-                    current_time = datetime.utcnow()
+                    current_time = datetime.now(timezone.utc)
                     expired_messages = []
                     
                     for message_id, message in self.active_messages.items():

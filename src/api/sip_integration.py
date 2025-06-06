@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 import logging
 from typing import Dict, Any, Optional
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import uvicorn
 
 from ..call_handling.call_manager import CallManager
@@ -50,7 +50,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": "1.0.0"
     }
 
@@ -306,7 +306,7 @@ async def get_statistics():
         return JSONResponse(content={
             "success": True,
             "statistics": stats,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
         
     except Exception as e:

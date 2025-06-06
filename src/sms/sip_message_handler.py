@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Dict, List, Optional, Any
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ class SIPMessageHandler:
             if "X-SMS-ID" in headers:
                 message_id = headers["X-SMS-ID"]
                 self.pending_deliveries[message_id] = {
-                    "timestamp": datetime.utcnow(),
+                    "timestamp": datetime.now(timezone.utc),
                     "to_uri": to_uri,
                     "from_uri": from_uri
                 }
@@ -206,7 +206,7 @@ class SIPMessageHandler:
             "body": sip_data.get("body", ""),
             "headers": sip_data.get("headers", {}),
             "content_type": sip_data.get("content_type", "text/plain"),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
     def _is_delivery_report(self, sip_data: Dict[str, Any]) -> bool:
@@ -292,7 +292,7 @@ class SIPMessageHandler:
     
     async def get_pending_deliveries(self) -> List[Dict[str, Any]]:
         """Get list of pending delivery confirmations."""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         pending_list = []
         
         for message_id, delivery_info in self.pending_deliveries.items():
@@ -309,7 +309,7 @@ class SIPMessageHandler:
     
     async def cleanup_expired_deliveries(self, timeout_hours: int = 24):
         """Clean up expired delivery tracking entries."""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         expired_ids = []
         
         for message_id, delivery_info in self.pending_deliveries.items():
@@ -342,7 +342,7 @@ class SIPMessageHandler:
             # Prepare delivery confirmation message
             original_id = original_message.get("headers", {}).get("X-SMS-ID", "unknown")
             
-            delivery_body = f"Delivery Status: {status}\nOriginal Message ID: {original_id}\nTimestamp: {datetime.utcnow().isoformat()}"
+            delivery_body = f"Delivery Status: {status}\nOriginal Message ID: {original_id}\nTimestamp: {datetime.now(timezone.utc).isoformat()}"
             
             headers = {
                 "Content-Type": "message/delivery-status",

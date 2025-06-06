@@ -4,7 +4,7 @@ import json
 import logging
 from typing import List, Dict, Optional, Any
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import hmac
 
@@ -58,7 +58,7 @@ class SIPClient:
         """Initiate an outgoing call."""
         try:
             # Generate call ID
-            call_id = f"call_{datetime.utcnow().timestamp()}_{from_number}_{to_number}"
+            call_id = f"call_{datetime.now(timezone.utc).timestamp()}_{from_number}_{to_number}"
             call_id = hashlib.md5(call_id.encode()).hexdigest()
             
             # Prepare SIP INVITE
@@ -83,7 +83,7 @@ class SIPClient:
                 to_number=to_number,
                 status=CallStatus.CONNECTING,
                 direction="outbound",
-                start_time=datetime.utcnow()
+                start_time=datetime.now(timezone.utc)
             )
             
             return call_info
@@ -221,7 +221,7 @@ class SIPClient:
         """Send an SMS message."""
         try:
             # Generate message ID
-            message_id = f"sms_{datetime.utcnow().timestamp()}_{from_number}_{to_number}"
+            message_id = f"sms_{datetime.now(timezone.utc).timestamp()}_{from_number}_{to_number}"
             message_id = hashlib.md5(message_id.encode()).hexdigest()
             
             # Prepare SIP MESSAGE
@@ -249,7 +249,7 @@ class SIPClient:
                 message=message,
                 status=SMSStatus.SENT,
                 direction="outbound",
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(timezone.utc),
                 segments=self._calculate_segments(message)
             )
             
@@ -281,7 +281,7 @@ class SIPClient:
             # Add to hash table
             value = {
                 "reason": reason or "Blocked by admin",
-                "blocked_at": datetime.utcnow().isoformat(),
+                "blocked_at": datetime.now(timezone.utc).isoformat(),
                 "expires_at": expires_at.isoformat() if expires_at else None
             }
             
@@ -318,7 +318,7 @@ class SIPClient:
                 blocked = BlockedNumber(
                     number=number,
                     reason=value.get("reason"),
-                    blocked_at=datetime.fromisoformat(value.get("blocked_at", datetime.utcnow().isoformat()))
+                    blocked_at=datetime.fromisoformat(value.get("blocked_at", datetime.now(timezone.utc).isoformat()))
                 )
                 
                 if value.get("expires_at"):

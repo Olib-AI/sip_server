@@ -1,5 +1,5 @@
 """Authentication utilities for API."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -38,9 +38,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """Create a JWT access token."""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -166,7 +166,7 @@ class WebSocketAuthenticator:
             
             # Check if token is expired
             exp = payload.get("exp")
-            if exp and datetime.utcnow().timestamp() > exp:
+            if exp and datetime.now(timezone.utc).timestamp() > exp:
                 raise ValueError("Token expired")
             
             return {
@@ -201,7 +201,7 @@ class WebSocketAuthenticator:
             "user_id": user_id,
             "call_id": call_id,
             "scope": "websocket",
-            "iat": datetime.utcnow().timestamp()
+            "iat": datetime.now(timezone.utc).timestamp()
         }
         
         # WebSocket tokens have shorter expiry

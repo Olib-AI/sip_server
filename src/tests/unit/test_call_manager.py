@@ -5,7 +5,7 @@ Tests all call management functionality including state management, routing, and
 import pytest
 import asyncio
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, Any
 
@@ -34,7 +34,7 @@ class TestCallSession:
         assert sample_call_session.duration() is None
         
         # Set connect time
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         sample_call_session.connect_time = now
         
         # Should calculate duration from connect time
@@ -52,7 +52,7 @@ class TestCallSession:
         assert sample_call_session.ring_duration() is None
         
         # Set ring start
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         sample_call_session.ring_start = now
         
         # Should calculate from ring start to now
@@ -99,7 +99,7 @@ class TestCallQueue:
                 priority=CallPriority.NORMAL,
                 caller=CallParticipant(number=f"+1234567890{i}"),
                 callee=CallParticipant(number="+10987654321"),
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             assert call_queue.add_call(call) is True
         
@@ -112,7 +112,7 @@ class TestCallQueue:
             priority=CallPriority.NORMAL,
             caller=CallParticipant(number="+19999999999"),
             callee=CallParticipant(number="+10987654321"),
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         assert call_queue.add_call(overflow_call) is False
     
@@ -127,7 +127,7 @@ class TestCallQueue:
             priority=CallPriority.LOW,
             caller=CallParticipant(number="+11111111111"),
             callee=CallParticipant(number="+10987654321"),
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         
         high_call = CallSession(
@@ -138,7 +138,7 @@ class TestCallQueue:
             priority=CallPriority.HIGH,
             caller=CallParticipant(number="+12222222222"),
             callee=CallParticipant(number="+10987654321"),
-            created_at=datetime.utcnow() + timedelta(seconds=1)  # Added later
+            created_at=datetime.now(timezone.utc) + timedelta(seconds=1)  # Added later
         )
         
         call_queue.add_call(low_call)
@@ -174,7 +174,7 @@ class TestCallQueue:
             priority=CallPriority.NORMAL,
             caller=CallParticipant(number="+11111111111"),
             callee=CallParticipant(number="+10987654321"),
-            created_at=datetime.utcnow() - timedelta(seconds=400)  # Older than timeout
+            created_at=datetime.now(timezone.utc) - timedelta(seconds=400)  # Older than timeout
         )
         
         call_queue.add_call(old_call)
@@ -196,7 +196,7 @@ class TestCallQueue:
                 priority=priority,
                 caller=CallParticipant(number=f"+1234567890{priority.value}"),
                 callee=CallParticipant(number="+10987654321"),
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             call_queue.add_call(call)
         
@@ -618,7 +618,7 @@ class TestCallManager:
             priority=CallPriority.NORMAL,
             caller=CallParticipant(number="+19999999999"),
             callee=CallParticipant(number="+18888888888"),
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         call_manager.active_calls[other_call.call_id] = other_call
         

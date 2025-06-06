@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from sqlalchemy.orm import Session
 
@@ -344,7 +344,7 @@ async def send_bulk_sms(
                     message=sms_data.message,
                     status="failed",
                     direction="outbound",
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     error=str(e)
                 ))
         

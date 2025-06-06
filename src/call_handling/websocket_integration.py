@@ -5,7 +5,7 @@ import websockets.exceptions
 import json
 import logging
 from typing import Dict, Any, Optional, Set, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import uuid
 
@@ -417,7 +417,7 @@ class WebSocketCallBridge:
                     "call_id": call_id,
                     "old_state": old_state.value,
                     "new_state": new_state.value,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 })
             
         except Exception as e:
@@ -445,7 +445,7 @@ class WebSocketCallBridge:
                     "call_id": call_id,
                     "duration": call_session.duration(),
                     "end_reason": call_session.custom_data.get("hangup_reason", "normal"),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat()
                 })
                 
                 # Close WebSocket connection

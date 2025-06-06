@@ -5,7 +5,7 @@ import logging
 from typing import Dict, Any, Optional, List
 import aiohttp
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .call_manager import CallManager, CallState, CallDirection
 
@@ -298,7 +298,7 @@ class KamailioIntegration:
             "remote_ip": sip_data.get("source_ip"),
             "headers": sip_data.get("headers", {}),
             "sdp": sip_data.get("sdp"),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
     def _extract_number_from_uri(self, uri: str) -> str:

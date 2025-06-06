@@ -5,7 +5,7 @@ import logging
 import hmac
 import hashlib
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 from fastapi import Request
 
@@ -54,7 +54,7 @@ class WebhookManager:
             # Add metadata
             payload = {
                 "event": event_type,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "data": data
             }
             
@@ -155,7 +155,7 @@ class WebhookManager:
                 "payload": payload,
                 "response_status": response_status,
                 "success": success,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             logger.info(f"Webhook delivery: {log_entry}")
         except Exception as e:

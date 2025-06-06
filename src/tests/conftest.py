@@ -254,7 +254,7 @@ async def mock_websocket():
 @pytest.fixture
 def sample_call_session():
     """Create sample call session for testing."""
-    from datetime import datetime
+    from datetime import datetime, timezone
     
     return CallSession(
         call_id="test-call-123",
@@ -273,7 +273,7 @@ def sample_call_session():
             display_name="Test Callee",
             is_registered=True
         ),
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         codec="PCMU"
     )
 
