@@ -122,7 +122,7 @@ The SIP server exposes a REST API for management and control:
 All API endpoints require JWT authentication:
 ```bash
 curl -H "Authorization: Bearer <your-jwt-token>" \
-  http://localhost:8000/api/calls/active
+  http://localhost:8080/api/calls/active
 ```
 
 ### Key Endpoints
@@ -166,7 +166,7 @@ curl -H "Authorization: Bearer <your-jwt-token>" \
 
 #### Create SIP User
 ```bash
-curl -X POST http://localhost:8000/api/sip-users/ \
+curl -X POST http://localhost:8080/api/sip-users/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <admin-token>" \
   -d '{
@@ -179,13 +179,13 @@ curl -X POST http://localhost:8000/api/sip-users/ \
 
 #### Get SIP User Credentials
 ```bash
-curl -X GET http://localhost:8000/api/sip-users/1/credentials \
+curl -X GET http://localhost:8080/api/sip-users/1/credentials \
   -H "Authorization: Bearer <admin-token>"
 ```
 
 #### Initiate a Call
 ```bash
-curl -X POST http://localhost:8000/api/calls/initiate \
+curl -X POST http://localhost:8080/api/calls/initiate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -d '{
@@ -197,7 +197,7 @@ curl -X POST http://localhost:8000/api/calls/initiate \
 
 #### Send SMS
 ```bash
-curl -X POST http://localhost:8000/api/sms/send \
+curl -X POST http://localhost:8080/api/sms/send \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -d '{
@@ -209,7 +209,7 @@ curl -X POST http://localhost:8000/api/sms/send \
 
 #### Block a Number
 ```bash
-curl -X POST http://localhost:8000/api/numbers/block \
+curl -X POST http://localhost:8080/api/numbers/block \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -d '{
@@ -231,7 +231,7 @@ JWT_SECRET_KEY=your-secret-key-here
 SIP_JWT_SECRET=your-sip-user-management-secret-256-bit-key
 
 # AI Platform Integration
-AI_PLATFORM_WS_URL=ws://ai-platform:8000/sip/ws
+AI_PLATFORM_WS_URL=ws://ai-platform:8080/sip/ws
 SIP_SHARED_SECRET=your-256-bit-shared-secret
 
 # SIP Configuration
@@ -254,7 +254,7 @@ Configure your VOIP provider to forward calls to your SIP server:
 
 Example trunk configuration:
 ```bash
-curl -X POST http://localhost:8000/api/trunks \
+curl -X POST http://localhost:8080/api/trunks \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -d '{
@@ -500,8 +500,8 @@ kubectl exec -n sip-system <sip-pod> -- tcpdump -i any -s 0 -w sip.pcap port 506
 kubectl exec -n sip-system <postgres-pod> -- psql -U kamailio -d kamailio -c "SELECT * FROM active_calls;"
 
 # Test API endpoints
-curl http://localhost:8000/health
-curl http://localhost:8000/api/config/status
+curl http://localhost:8080/health
+curl http://localhost:8080/api/config/status
 ```
 
 ## 🌐 Integration with AI Platform

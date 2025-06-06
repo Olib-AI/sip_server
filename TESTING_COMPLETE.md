@@ -350,7 +350,7 @@ The test suite provides realistic validation of every aspect of the SIP server s
 🎉 **INTEGRATION READY**: The SIP server can realistically integrate with the AI platform!
 
 **Key Integration Points Validated:**
-- WebSocket bridge to AI platform (`ws://ai-platform:8000/sip/ws`)
+- WebSocket bridge to AI platform (`ws://ai-platform:8080/sip/ws`)
 - JWT + HMAC authentication with proper headers
 - **SIP user authentication system** with digest auth support
 - **Administrative API** for SIP user management (separate JWT secret)

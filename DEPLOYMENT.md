@@ -370,7 +370,7 @@ Ensure these ports are accessible:
 - **5060/TCP**: SIP signaling over TCP
 - **5061/TCP**: SIP over TLS (SIPS)
 - **10000-20000/UDP**: RTP media streams
-- **8000/TCP**: API (internal only)
+- **8080/TCP**: API (internal only)
 - **8080/TCP**: WebSocket (internal only)
 
 ### 3. NAT Configuration
@@ -739,7 +739,7 @@ kubectl exec -it <pod-name> -- tcpdump -i any port 5060
 kubectl top pods -l app=sip-server
 
 # Monitor metrics
-curl http://<pod-ip>:8000/metrics
+curl http://<pod-ip>:8080/metrics
 
 # Check Kamailio stats
 kubectl exec -it <pod-name> -- kamctl stats

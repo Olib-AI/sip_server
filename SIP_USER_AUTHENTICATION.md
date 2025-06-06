@@ -552,7 +552,7 @@ python -m pytest src/tests/integration/test_sip_user_api.py -v
 
 ```bash
 # Test user creation
-curl -X POST http://localhost:8000/api/sip-users/ \
+curl -X POST http://localhost:8080/api/sip-users/ \
   -H "Authorization: Bearer admin-token" \
   -H "Content-Type: application/json" \
   -d '{
@@ -562,7 +562,7 @@ curl -X POST http://localhost:8000/api/sip-users/ \
   }'
 
 # Test authentication
-curl -X POST http://localhost:8000/api/sip-auth/authenticate \
+curl -X POST http://localhost:8080/api/sip-auth/authenticate \
   -H "Content-Type: application/json" \
   -d '{
     "username": "testuser",
@@ -601,19 +601,19 @@ curl -X POST http://localhost:8000/api/sip-auth/authenticate \
 ```bash
 # Check user status
 curl -H "Authorization: Bearer admin-token" \
-  http://localhost:8000/api/sip-users/1
+  http://localhost:8080/api/sip-users/1
 
 # Get user statistics
 curl -H "Authorization: Bearer admin-token" \
-  http://localhost:8000/api/sip-users/1/stats
+  http://localhost:8080/api/sip-users/1/stats
 
 # Check active calls
 curl -H "Authorization: Bearer admin-token" \
-  http://localhost:8000/api/sip-users/1/calls?active_only=true
+  http://localhost:8080/api/sip-users/1/calls?active_only=true
 
 # Unlock account
 curl -X POST -H "Authorization: Bearer admin-token" \
-  http://localhost:8000/api/sip-users/1/unlock
+  http://localhost:8080/api/sip-users/1/unlock
 ```
 
 ### Logs

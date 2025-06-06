@@ -155,16 +155,16 @@ python -m pytest src/tests/performance/ -v
 docker-compose ps
 
 # API health endpoint (should return 200 OK)
-curl http://localhost:8000/health
+curl http://localhost:8080/health
 
 # Check Prometheus metrics (should return metrics data)
-curl http://localhost:8000/metrics
+curl http://localhost:8080/metrics
 
 # WebSocket connectivity test (with proper auth)
 curl -H "Authorization: Bearer your_jwt_token" \
      -H "Upgrade: websocket" \
      -H "Connection: Upgrade" \
-     http://localhost:8000/ws/
+     http://localhost:8080/ws/
 
 # Database connection validation
 docker-compose exec sip-server python3 -c "
@@ -188,13 +188,13 @@ print(f'✅ Audio resampling: {len(test_audio)} -> {len(result)} bytes')
 ### API Testing (All Endpoints Validated)
 ```bash
 # Test configuration endpoint
-curl http://localhost:8000/api/config/status
+curl http://localhost:8080/api/config/status
 
 # Test health monitoring
-curl http://localhost:8000/api/config/health
+curl http://localhost:8080/api/config/health
 
 # Test call management (with authentication)
-curl -X POST http://localhost:8000/api/calls/initiate \
+curl -X POST http://localhost:8080/api/calls/initiate \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer your_jwt_token" \
      -d '{
@@ -204,7 +204,7 @@ curl -X POST http://localhost:8000/api/calls/initiate \
      }'
 
 # Test SMS functionality
-curl -X POST http://localhost:8000/api/sms/send \
+curl -X POST http://localhost:8080/api/sms/send \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer your_jwt_token" \
      -d '{
@@ -215,14 +215,14 @@ curl -X POST http://localhost:8000/api/sms/send \
 
 # Get active calls with statistics
 curl -H "Authorization: Bearer your_jwt_token" \
-     http://localhost:8000/api/calls/active
+     http://localhost:8080/api/calls/active
 
 # Test trunk management
 curl -H "Authorization: Bearer your_jwt_token" \
-     http://localhost:8000/api/trunks
+     http://localhost:8080/api/trunks
 
 # Test number blocking functionality
-curl -X POST http://localhost:8000/api/numbers/block \
+curl -X POST http://localhost:8080/api/numbers/block \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer your_jwt_token" \
      -d '{"number": "+1234567890", "reason": "Test block"}'
@@ -357,7 +357,7 @@ docker-compose ps
 # All services should show "Up" status
 
 # 3. Run quick health checks
-curl http://localhost:8000/health  # Should return 200 OK
+curl http://localhost:8080/health  # Should return 200 OK
 python src/tests/run_tests.py     # Should show 159 tests passing
 
 # 4. Review logs for any remaining issues
@@ -374,7 +374,7 @@ docker-compose logs -f
 
 **Validation Steps:**
 1. ✅ Service health: `docker-compose ps` (all "Up")
-2. ✅ API health: `curl http://localhost:8000/health`
+2. ✅ API health: `curl http://localhost:8080/health`
 3. ✅ Database connectivity: Test config loading
 4. ✅ Test suite: `python src/tests/run_tests.py` (159 passing)
 5. ✅ AI integration: `python src/tests/validate_ai_integration_realistic.py`
@@ -430,8 +430,8 @@ docker-compose ps
 
 # 2. API Endpoints
 echo "2. Testing API endpoints..."
-curl -s http://localhost:8000/health || echo "❌ Health check failed"
-curl -s http://localhost:8000/metrics | head -5 || echo "❌ Metrics failed"
+curl -s http://localhost:8080/health || echo "❌ Health check failed"
+curl -s http://localhost:8080/metrics | head -5 || echo "❌ Metrics failed"
 
 # 3. Test Suite
 echo "3. Running test suite..."
