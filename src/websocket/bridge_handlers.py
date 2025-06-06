@@ -123,6 +123,16 @@ class BridgeHandlers:
             from ..audio.rtp import RTPStatistics
             self.call_statistics[call_id] = RTPStatistics()
             
+            # Initialize streaming resampler for this call
+            if not hasattr(self, '_resamplers'):
+                self._resamplers = {}
+            from ..audio.resampler import StreamingResampler
+            self._resamplers[call_id] = StreamingResampler(
+                from_rate=8000,  # SIP telephony
+                to_rate=16000,   # AI STT requirement  
+                chunk_size=320   # 20ms at 8kHz, 16-bit
+            )
+            
             logger.info(f"RTP session setup for call {call_id} on port {rtp_session.local_port}")
             
         except Exception as e:
@@ -189,10 +199,18 @@ class BridgeHandlers:
             # Apply audio processing
             pcm_data = self.audio_processor.apply_agc(pcm_data)
             
+            # Resample from 8kHz (telephony) to 16kHz (AI STT requirement)
+            if hasattr(self, '_resamplers') and call_id in self._resamplers:
+                resampled_data = self._resamplers[call_id].process_chunk(pcm_data)
+            else:
+                # Fallback to simple resampling
+                from ..audio.resampler import AudioResampler
+                resampled_data = AudioResampler.resample_audio(pcm_data, 8000, 16000)
+            
             # Add to buffer for jitter control
             buffer = self.audio_buffers.get(call_id)
             if buffer:
-                buffer.add_frame(pcm_data)
+                buffer.add_frame(resampled_data)
                 
                 # Send buffered frames to AI
                 while True:
@@ -222,9 +240,13 @@ class BridgeHandlers:
         try:
             call_info = self.active_calls[call_id]
             
+            # AI sends 16kHz PCM, need to downsample to 8kHz for telephony
+            from ..audio.resampler import AudioResampler
+            downsampled_data = AudioResampler.resample_audio(audio_data, 16000, 8000)
+            
             # Convert PCM to SIP codec format
             codec_data = self.audio_processor.convert_format(
-                audio_data, "PCM", call_info.codec
+                downsampled_data, "PCM", call_info.codec
             )
             
             # Send via RTP
@@ -373,6 +395,13 @@ class BridgeHandlers:
             # Clear buffers and statistics
             self.audio_buffers.pop(call_id, None)
             self.call_statistics.pop(call_id, None)
+            
+            # Cleanup resampler
+            if hasattr(self, '_resamplers'):
+                resampler = self._resamplers.pop(call_id, None)
+                if resampler:
+                    # Flush any remaining buffered audio
+                    resampler.flush()
             
             # Remove from tracking
             self.active_calls.pop(call_id, None)
