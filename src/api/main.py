@@ -12,7 +12,7 @@ import psutil
 import time
 from contextlib import asynccontextmanager
 
-from .routes import calls, sms, numbers, config, webhooks, trunks
+from .routes import calls, sms, numbers, config, webhooks, trunks, sip_users, sip_auth
 from ..models.database import init_db, get_db
 from ..utils.auth import get_current_user
 from ..utils.sip_client import SIPClient
@@ -134,6 +134,8 @@ app.include_router(numbers.router, prefix="/api/numbers", tags=["numbers"])
 app.include_router(config.router, prefix="/api/config", tags=["config"])
 app.include_router(trunks.router, tags=["trunks"])
 app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+app.include_router(sip_users.router, tags=["sip-users"])
+app.include_router(sip_auth.router, tags=["sip-auth"])
 
 
 # Exception handlers

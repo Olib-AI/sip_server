@@ -29,6 +29,8 @@ class SIPConfig:
     host: str = "0.0.0.0"
     port: int = 5060
     domain: str = "sip.olib.ai"
+    proxy_address: str = "sip.olib.ai"
+    proxy_port: int = 5060
     rtp_proxy_host: str = "127.0.0.1"
     rtp_proxy_port: int = 12221
 
@@ -56,6 +58,8 @@ class SecurityConfig:
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 30
     api_key: str = "change-this-in-production"
+    # Separate JWT secret for SIP user management (higher security)
+    sip_jwt_secret: str = "change-this-sip-secret-in-production"
 
 
 @dataclass
@@ -275,6 +279,8 @@ class ConfigManager:
             host=self._get_env("SIP_HOST", "0.0.0.0"),
             port=self._get_env("SIP_PORT", 5060, int),
             domain=self._get_env("SIP_DOMAIN", "sip.olib.ai"),
+            proxy_address=self._get_env("SIP_PROXY_ADDRESS", "sip.olib.ai"),
+            proxy_port=self._get_env("SIP_PROXY_PORT", 5060, int),
             rtp_proxy_host=self._get_env("RTP_PROXY_HOST", "127.0.0.1"),
             rtp_proxy_port=self._get_env("RTP_PROXY_PORT", 12221, int)
         )
@@ -298,7 +304,8 @@ class ConfigManager:
             jwt_secret_key=self._get_env("JWT_SECRET_KEY", "change-this-in-production"),
             jwt_algorithm=self._get_env("JWT_ALGORITHM", "HS256"),
             jwt_expire_minutes=self._get_env("JWT_EXPIRE_MINUTES", 30, int),
-            api_key=self._get_env("API_KEY", "change-this-in-production")
+            api_key=self._get_env("API_KEY", "change-this-in-production"),
+            sip_jwt_secret=self._get_env("SIP_JWT_SECRET", "change-this-sip-secret-in-production")
         )
         
         # Call management configuration

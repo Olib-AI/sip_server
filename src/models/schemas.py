@@ -160,3 +160,175 @@ class RegistrationWebhook(BaseModel):
     contact: str
     expires: int
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# SIP User Management Schemas
+
+class SIPUserCreate(BaseModel):
+    """Schema for creating a SIP user."""
+    username: str = Field(..., min_length=3, max_length=100, description="SIP username")
+    password: str = Field(..., min_length=8, max_length=255, description="SIP password")
+    display_name: Optional[str] = Field(None, max_length=200, description="Display name")
+    realm: str = Field("sip.olib.ai", description="SIP realm/domain")
+    max_concurrent_calls: int = Field(3, ge=1, le=10, description="Max concurrent calls")
+    call_recording_enabled: bool = Field(True, description="Enable call recording")
+    sms_enabled: bool = Field(True, description="Enable SMS")
+    api_user_id: Optional[int] = Field(None, description="Associated API user ID")
+    
+    @field_validator('username')
+    @classmethod
+    def validate_username(cls, v):
+        if not v.isalnum():
+            raise ValueError('Username must be alphanumeric')
+        return v.lower()
+    
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        return v
+
+
+class SIPUserUpdate(BaseModel):
+    """Schema for updating a SIP user."""
+    password: Optional[str] = Field(None, min_length=8, max_length=255)
+    display_name: Optional[str] = Field(None, max_length=200)
+    is_active: Optional[bool] = None
+    is_blocked: Optional[bool] = None
+    max_concurrent_calls: Optional[int] = Field(None, ge=1, le=10)
+    call_recording_enabled: Optional[bool] = None
+    sms_enabled: Optional[bool] = None
+    
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if v is not None and len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        return v
+
+
+class SIPUserInfo(BaseModel):
+    """Schema for SIP user information."""
+    id: int
+    username: str
+    display_name: Optional[str]
+    realm: str
+    is_active: bool
+    is_blocked: bool
+    max_concurrent_calls: int
+    call_recording_enabled: bool
+    sms_enabled: bool
+    api_user_id: Optional[int]
+    
+    # Statistics
+    total_calls: int
+    total_minutes: int
+    total_sms: int
+    failed_auth_attempts: int
+    
+    # Timestamps
+    created_at: datetime
+    updated_at: datetime
+    last_seen: Optional[datetime]
+    last_registration: Optional[datetime]
+    registration_expires: Optional[datetime]
+    account_locked_until: Optional[datetime]
+    
+    # SIP metadata
+    contact_info: Optional[Dict[str, Any]]
+    user_agent: Optional[str]
+    
+    class Config:
+        from_attributes = True
+
+
+class SIPUserList(BaseModel):
+    """Schema for SIP user list response."""
+    users: List[SIPUserInfo]
+    total: int
+    page: int
+    per_page: int
+
+
+class SIPUserCredentials(BaseModel):
+    """Schema for SIP user credentials response (for client configuration)."""
+    username: str
+    realm: str
+    sip_domain: str
+    proxy_address: str
+    proxy_port: int
+    registration_expires: int
+    max_concurrent_calls: int
+    
+    class Config:
+        from_attributes = True
+
+
+class SIPCallSessionInfo(BaseModel):
+    """Schema for SIP call session information."""
+    id: int
+    call_id: str
+    sip_user_id: int
+    sip_username: str
+    from_uri: str
+    to_uri: str
+    contact_uri: Optional[str]
+    call_direction: str
+    call_state: str
+    media_session_id: Optional[str]
+    codec_used: Optional[str]
+    ai_conversation_id: Optional[str]
+    
+    # Call timing
+    start_time: datetime
+    answer_time: Optional[datetime]
+    end_time: Optional[datetime]
+    duration_seconds: Optional[int] = None
+    
+    # Metadata
+    sip_headers: Optional[Dict[str, Any]]
+    
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class SIPUserStats(BaseModel):
+    """Schema for SIP user statistics."""
+    username: str
+    total_calls: int
+    total_minutes: int
+    total_sms: int
+    active_calls: int
+    failed_auth_attempts: int
+    last_seen: Optional[datetime]
+    registration_status: str  # registered/expired/never
+    
+    class Config:
+        from_attributes = True
+
+
+class SIPAuthRequest(BaseModel):
+    """Schema for SIP authentication request."""
+    username: str
+    realm: str
+    method: str = "REGISTER"
+    uri: str
+    nonce: str
+    response: str
+    algorithm: str = "MD5"
+    cnonce: Optional[str] = None
+    nc: Optional[str] = None
+    qop: Optional[str] = None
+
+
+class SIPAuthResponse(BaseModel):
+    """Schema for SIP authentication response."""
+    authenticated: bool
+    user_id: Optional[int] = None
+    username: Optional[str] = None
+    reason: Optional[str] = None
+    account_locked: bool = False
+    account_inactive: bool = False

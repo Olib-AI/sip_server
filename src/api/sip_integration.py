@@ -10,6 +10,10 @@ import uvicorn
 
 from ..call_handling.call_manager import CallManager
 from ..call_handling.websocket_integration import WebSocketCallBridge
+from ..models.database import init_db
+
+# Import the new SIP user management routes
+from .routes import sip_users, sip_auth
 
 logger = logging.getLogger(__name__)
 
@@ -319,11 +323,24 @@ def initialize_services(call_mgr: CallManager, ws_bridge: WebSocketCallBridge):
     global call_manager, websocket_bridge
     call_manager = call_mgr
     websocket_bridge = ws_bridge
-    logger.info("SIP integration API services initialized")
+    
+    # Add SIP user management routes
+    app.include_router(sip_users.router, tags=["sip-users"])
+    app.include_router(sip_auth.router, tags=["sip-auth"])
+    
+    logger.info("SIP integration API services initialized with SIP user management")
 
 
 async def start_api_server(host: str = "0.0.0.0", port: int = 8080):
     """Start the API server."""
+    # Initialize database before starting server
+    try:
+        await init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
+    
     config = uvicorn.Config(
         app=app,
         host=host,

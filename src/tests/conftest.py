@@ -85,6 +85,7 @@ def test_config():
         },
         "security": {
             "jwt_secret": "test_secret_key_12345678901234567890",
+            "sip_jwt_secret": "test_sip_jwt_secret_256_bit_key_for_testing_purposes_12345678901234567890",
             "api_key": "test_api_key",
             "enable_auth": True
         },
@@ -515,6 +516,24 @@ class TestUtils:
 def test_utils():
     """Test utilities fixture."""
     return TestUtils
+
+
+@pytest.fixture
+def sip_admin_token():
+    """Generate SIP admin token for testing."""
+    from src.utils.sip_auth import SIPAuthenticator
+    sip_auth = SIPAuthenticator()
+    
+    # Mock the config to use test secrets
+    with patch('src.utils.sip_auth.get_config') as mock_config:
+        mock_config.return_value.security.sip_jwt_secret = "test_sip_jwt_secret_256_bit_key_for_testing_purposes_12345678901234567890"
+        
+        token = sip_auth.create_sip_management_token(
+            user_id=1,
+            username="admin",
+            is_admin=True
+        )
+        return token
 
 
 # Global test markers

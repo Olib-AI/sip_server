@@ -159,6 +159,110 @@ class APIUser(Base):
     is_admin = Column(Boolean, default=False)
     last_login = Column(DateTime)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    # Relationships
+    sip_users = relationship("SIPUser", back_populates="api_user")
+
+
+class SIPUser(Base):
+    """SIP users for authentication with username/password credentials."""
+    __tablename__ = "sip_users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(100), unique=True, index=True, nullable=False)
+    display_name = Column(String(200))
+    password = Column(String(255), nullable=False)  # Plain password for HA1 generation
+    ha1 = Column(String(32), nullable=False)  # MD5(username:realm:password) for SIP auth
+    realm = Column(String(100), nullable=False, default="sip.olib.ai")
+    is_active = Column(Boolean, default=True)
+    is_blocked = Column(Boolean, default=False)
+    max_concurrent_calls = Column(Integer, default=3)
+    call_recording_enabled = Column(Boolean, default=True)
+    sms_enabled = Column(Boolean, default=True)
+    
+    # Foreign key to API user (internal platform management)
+    api_user_id = Column(Integer, ForeignKey("api_users.id"), nullable=True)
+    
+    # SIP-specific metadata
+    contact_info = Column(JSON)  # SIP contact information
+    user_agent = Column(String(200))  # Last seen User-Agent
+    last_registration = Column(DateTime)
+    registration_expires = Column(DateTime)
+    failed_auth_attempts = Column(Integer, default=0)
+    account_locked_until = Column(DateTime)
+    
+    # Usage statistics
+    total_calls = Column(Integer, default=0)
+    total_minutes = Column(Integer, default=0)
+    total_sms = Column(Integer, default=0)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    last_seen = Column(DateTime)
+    
+    # Relationships
+    api_user = relationship("APIUser", back_populates="sip_users")
+    call_sessions = relationship("SIPCallSession", back_populates="sip_user")
+    
+    __table_args__ = (
+        Index('idx_sip_user_auth', 'username', 'realm'),
+        Index('idx_sip_user_active', 'is_active', 'is_blocked'),
+    )
+
+
+class SIPCallSession(Base):
+    """Active SIP call sessions for tracking user calls."""
+    __tablename__ = "sip_call_sessions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    call_id = Column(String(255), unique=True, index=True, nullable=False)
+    sip_user_id = Column(Integer, ForeignKey("sip_users.id"), nullable=False)
+    from_uri = Column(String(255), nullable=False)
+    to_uri = Column(String(255), nullable=False)
+    contact_uri = Column(String(255))
+    call_direction = Column(String(10), nullable=False)  # inbound/outbound
+    call_state = Column(String(20), nullable=False)  # ringing/connected/held/ended
+    media_session_id = Column(String(255))  # RTP session ID
+    
+    # Call timing
+    start_time = Column(DateTime, nullable=False)
+    answer_time = Column(DateTime)
+    end_time = Column(DateTime)
+    
+    # Call metadata
+    sip_headers = Column(JSON)
+    codec_used = Column(String(20))
+    ai_conversation_id = Column(String(255))
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    # Relationships
+    sip_user = relationship("SIPUser", back_populates="call_sessions")
+    
+    __table_args__ = (
+        Index('idx_call_session_user', 'sip_user_id', 'call_state'),
+        Index('idx_call_session_time', 'start_time', 'end_time'),
+    )
+
+
+class Subscriber(Base):
+    """Kamailio subscriber table for SIP authentication compatibility."""
+    __tablename__ = "subscriber"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(64), nullable=False, index=True, default="")
+    domain = Column(String(64), nullable=False, default="")
+    password = Column(String(25), nullable=False, default="")  # HA1 hash for SIP auth
+    email_address = Column(String(64), nullable=False, default="")
+    ha1 = Column(String(64), nullable=False, default="")  # MD5(username:realm:password)
+    ha1b = Column(String(64), nullable=False, default="")  # MD5(username@domain:realm:password)
+    rpid = Column(String(64), nullable=True)
+    
+    __table_args__ = (
+        Index('idx_subscriber_auth', 'username', 'domain'),
+        Index('idx_subscriber_username', 'username'),
+    )
 
 
 class Dispatcher(Base):

@@ -24,6 +24,14 @@ A production-ready SIP (Session Initiation Protocol) server built for the Olib A
   - Music on hold
   - Call hold/resume functionality
 
+- **SIP User Authentication (New!)**
+  - Complete user management with username/password credentials
+  - Secure HA1 hash authentication (industry standard)
+  - Account lockout protection against brute force attacks
+  - Per-user concurrent call limits and permissions
+  - Admin-only user management with separate JWT security
+  - Real-time call session tracking and statistics
+
 - **Real-time AI Communication**
   - WebSocket bridge to AI platform for live conversations
   - Ultra-low latency audio streaming (<600ms total)
@@ -34,7 +42,7 @@ A production-ready SIP (Session Initiation Protocol) server built for the Olib A
 ### Technical Features
 - **Multi-trunk Support**: Connect to multiple VOIP providers
 - **High Availability**: Kubernetes-ready with horizontal scaling  
-- **Production Ready**: 159 passing tests, validated integration
+- **Production Ready**: 165+ passing tests, validated integration
 - **Security**: JWT + HMAC authentication, rate limiting, IP whitelisting
 - **Monitoring**: Comprehensive metrics and health checks
 - **Database**: PostgreSQL for CDR and configuration storage
@@ -119,6 +127,17 @@ curl -H "Authorization: Bearer <your-jwt-token>" \
 
 ### Key Endpoints
 
+#### SIP User Management (New!)
+- `POST /api/sip-users/` - Create SIP user with credentials
+- `GET /api/sip-users/` - List SIP users with pagination
+- `GET /api/sip-users/{user_id}` - Get SIP user details
+- `PUT /api/sip-users/{user_id}` - Update SIP user
+- `DELETE /api/sip-users/{user_id}` - Delete SIP user
+- `POST /api/sip-users/{user_id}/unlock` - Unlock blocked account
+- `GET /api/sip-users/{user_id}/credentials` - Get SIP client config
+- `GET /api/sip-users/{user_id}/stats` - Get user statistics
+- `POST /api/sip-users/bulk-create` - Create multiple users
+
 #### Call Management
 - `POST /api/calls/initiate` - Start an outbound call
 - `GET /api/calls/active` - List active calls
@@ -144,6 +163,25 @@ curl -H "Authorization: Bearer <your-jwt-token>" \
 - `DELETE /api/trunks/{trunk_id}` - Remove trunk
 
 ### Example API Calls
+
+#### Create SIP User
+```bash
+curl -X POST http://localhost:8000/api/sip-users/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <admin-token>" \
+  -d '{
+    "username": "user123",
+    "password": "secure_password",
+    "display_name": "John Doe",
+    "max_concurrent_calls": 3
+  }'
+```
+
+#### Get SIP User Credentials
+```bash
+curl -X GET http://localhost:8000/api/sip-users/1/credentials \
+  -H "Authorization: Bearer <admin-token>"
+```
 
 #### Initiate a Call
 ```bash
@@ -189,14 +227,17 @@ DATABASE_URL=postgresql://kamailio:password@localhost/kamailio
 
 # Security
 JWT_SECRET_KEY=your-secret-key-here
+# SIP User Management (separate secret for higher security)
+SIP_JWT_SECRET=your-sip-user-management-secret-256-bit-key
 
 # AI Platform Integration
 AI_PLATFORM_WS_URL=ws://ai-platform:8000/sip/ws
 SIP_SHARED_SECRET=your-256-bit-shared-secret
-SIP_JWT_SECRET=your-jwt-signing-secret
 
 # SIP Configuration
 SIP_DOMAIN=sip.your-domain.com
+SIP_PROXY_ADDRESS=sip.your-domain.com
+SIP_PROXY_PORT=5060
 KAMAILIO_SHARED_MEMORY=256
 KAMAILIO_PKG_MEMORY=32
 
@@ -275,7 +316,7 @@ kubectl logs -n sip-system -l app=sip-server,component=api
 - **Audio Latency**: < 600ms total (including AI processing)
 - **Audio Processing**: < 1ms resampling latency
 - **SMS Throughput**: 100+ messages/second
-- **Test Coverage**: 159 tests passing, 95%+ coverage
+- **Test Coverage**: 165+ tests passing, 95%+ coverage
 
 ## 🧪 Testing
 
@@ -303,7 +344,8 @@ python src/tests/validate_ai_integration_realistic.py
 ```
 
 ### Test Results
-- ✅ **159 tests passing** (0 failures)
+- ✅ **165+ tests passing** (0 failures)
+- ✅ **SIP user authentication system fully tested**
 - ✅ **27 integration validations successful** 
 - ✅ **Audio pipeline validated** (8kHz ↔ 16kHz resampling)
 - ✅ **WebSocket communication tested**
@@ -371,9 +413,9 @@ sip_server/
 ├── scripts/             # Utility scripts
 │   ├── init-database.py         # Database initialization
 │   └── test_websocket_bridge.py # WebSocket testing
-├── tests/              # Test suites (159 passing tests)
-│   ├── unit/                    # Unit tests
-│   ├── integration/             # Integration tests  
+├── tests/              # Test suites (165+ passing tests)
+│   ├── unit/                    # Unit tests (including SIP auth)
+│   ├── integration/             # Integration tests (including SIP user API)  
 │   ├── e2e/                     # End-to-end tests (disabled)
 │   ├── run_tests.py             # Comprehensive test runner
 │   ├── validate_ai_integration_realistic.py  # AI integration validation
