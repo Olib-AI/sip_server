@@ -551,6 +551,53 @@ class MusicOnHoldManager:
             logger.error(f"Error loading music sources: {e}")
             raise
     
+    async def start(self):
+        """Start the music on hold manager."""
+        # Initialize the audio playback task if needed
+        if not self._playback_task or self._playback_task.done():
+            self._playback_task = asyncio.create_task(self._audio_playback_loop())
+        logger.info("Music on hold manager started")
+    
+    async def stop(self):
+        """Stop the music on hold manager."""
+        # Stop all active sessions
+        for call_id in list(self.hold_sessions.keys()):
+            await self.stop_hold_music(call_id)
+        
+        # Cancel playback task
+        if self._playback_task and not self._playback_task.done():
+            self._playback_task.cancel()
+            try:
+                await self._playback_task
+            except asyncio.CancelledError:
+                pass
+        
+        logger.info("Music on hold manager stopped")
+    
+    async def _audio_playback_loop(self):
+        """Background task for audio playback."""
+        while True:
+            try:
+                await asyncio.sleep(self.playback_interval)
+                
+                # Process active sessions
+                for call_id, session in list(self.hold_sessions.items()):
+                    player = self.players.get(call_id)
+                    if player and player.is_playing:
+                        chunk = player.get_next_chunk(self.chunk_size)
+                        if chunk and self.audio_bridge:
+                            # Send audio to the call
+                            await self.audio_bridge.send_audio(call_id, chunk)
+                        elif not chunk:
+                            # Player finished, stop session
+                            await self.stop_hold_music(call_id)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in music playback loop: {e}")
+                await asyncio.sleep(1.0)  # Brief pause before retrying
+    
     async def cleanup(self):
         """Cleanup manager resources."""
         try:

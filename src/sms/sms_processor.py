@@ -12,6 +12,19 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class SMSProcessingResult:
+    """Result of SMS processing operation."""
+    success: bool
+    message_id: str
+    action_taken: str = ""
+    error_message: str = ""
+    ai_forwarded: bool = False
+    auto_replied: bool = False
+    conversation_id: Optional[str] = None
+    processing_time_ms: float = 0.0
+
+
 class SMSProcessingAction(Enum):
     """SMS processing action types."""
     FORWARD_TO_AI = "forward_to_ai"
@@ -106,10 +119,14 @@ class SMSProcessor:
         
         # Statistics
         self.total_processed = 0
+        self.successful_processed = 0
+        self.failed_processed = 0
+        self.filtered_messages = 0
         self.ai_forwarded = 0
         self.auto_replied = 0
         self.spam_detected = 0
         self.rules_matched = 0
+        self.processing_statistics = {}
         
         # Configuration
         self.enable_conversation_tracking = True
@@ -653,6 +670,117 @@ class SMSProcessor:
         except Exception as e:
             logger.error(f"Error loading SMS processor configuration: {e}")
             raise
+    
+    @property
+    def is_running(self) -> bool:
+        """Check if processor is running."""
+        return not self._cleanup_task.done() if hasattr(self, '_cleanup_task') else True
+    
+    async def start(self):
+        """Start the SMS processor."""
+        if not hasattr(self, '_cleanup_task') or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._cleanup_expired_conversations())
+        logger.info("SMS processor started")
+    
+    async def stop(self):
+        """Stop the SMS processor."""
+        if hasattr(self, '_cleanup_task'):
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("SMS processor stopped")
+    
+    async def process_inbound_message(self, message: 'SMSMessage') -> SMSProcessingResult:
+        """Process inbound SMS message."""
+        start_time = time.time()
+        try:
+            # Apply filters first
+            if hasattr(self, '_filters'):
+                for filter_name, filter_func in self._filters.items():
+                    if filter_func(message):
+                        self.filtered_messages += 1
+                        return SMSProcessingResult(
+                            success=False,
+                            message_id=message.message_id,
+                            error_message=f"Message filtered by {filter_name}",
+                            processing_time_ms=(time.time() - start_time) * 1000
+                        )
+            
+            # Apply transformers
+            if hasattr(self, '_transformers'):
+                for transformer_name, transformer_func in self._transformers.items():
+                    message = transformer_func(message)
+            
+            result = await self.process_inbound_sms(message)
+            self.successful_processed += 1
+            return SMSProcessingResult(
+                success=True,
+                message_id=message.message_id,
+                action_taken="processed",
+                processing_time_ms=(time.time() - start_time) * 1000
+            )
+        except Exception as e:
+            self.failed_processed += 1
+            return SMSProcessingResult(
+                success=False,
+                message_id=message.message_id,
+                error_message=str(e),
+                processing_time_ms=(time.time() - start_time) * 1000
+            )
+    
+    async def process_outbound_message(self, message: 'SMSMessage') -> SMSProcessingResult:
+        """Process outbound SMS message."""
+        start_time = time.time()
+        try:
+            # For outbound messages, just track them
+            self.total_processed += 1
+            self.successful_processed += 1
+            return SMSProcessingResult(
+                success=True,
+                message_id=message.message_id,
+                action_taken="sent",
+                processing_time_ms=(time.time() - start_time) * 1000
+            )
+        except Exception as e:
+            self.failed_processed += 1
+            return SMSProcessingResult(
+                success=False,
+                message_id=message.message_id,
+                error_message=str(e),
+                processing_time_ms=(time.time() - start_time) * 1000
+            )
+    
+    def add_filter(self, name: str, filter_func: Callable):
+        """Add message filter."""
+        # Store filter functions
+        if not hasattr(self, '_filters'):
+            self._filters = {}
+        self._filters[name] = filter_func
+        logger.info(f"Added SMS filter: {name}")
+    
+    def add_transformer(self, name: str, transformer_func: Callable):
+        """Add message transformer."""
+        # Store transformer functions  
+        if not hasattr(self, '_transformers'):
+            self._transformers = {}
+        self._transformers[name] = transformer_func
+        logger.info(f"Added SMS transformer: {name}")
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get processing statistics."""
+        return {
+            "total_processed": self.total_processed,
+            "successful_processed": self.successful_processed,
+            "failed_processed": self.failed_processed,
+            "filtered_messages": self.filtered_messages,
+            "success_rate": self.successful_processed / max(self.total_processed, 1),
+            "ai_forwarded": self.ai_forwarded,
+            "auto_replied": self.auto_replied,
+            "spam_detected": self.spam_detected,
+            "rules_matched": self.rules_matched
+        }
     
     async def cleanup(self):
         """Cleanup processor resources."""

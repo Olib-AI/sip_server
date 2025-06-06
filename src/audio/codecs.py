@@ -105,18 +105,37 @@ class AudioProcessor:
     def convert_format(self, data: bytes, from_codec: str, to_codec: str) -> bytes:
         """Convert audio between different formats."""
         try:
-            from_codec_obj = self.get_codec(from_codec)
-            to_codec_obj = self.get_codec(to_codec)
+            # Handle PCM as a special case
+            from_is_pcm = from_codec.upper() == 'PCM'
+            to_is_pcm = to_codec.upper() == 'PCM'
             
-            if not from_codec_obj or not to_codec_obj:
-                logger.error(f"Unsupported codec conversion: {from_codec} -> {to_codec}")
+            # If both are PCM, no conversion needed
+            if from_is_pcm and to_is_pcm:
                 return data
             
-            # Decode to PCM first
-            pcm_data = from_codec_obj.decode(data) if from_codec.upper() != 'PCM' else data
+            # Get codec objects for non-PCM formats
+            from_codec_obj = None if from_is_pcm else self.get_codec(from_codec)
+            to_codec_obj = None if to_is_pcm else self.get_codec(to_codec)
             
-            # Encode to target format
-            return to_codec_obj.encode(pcm_data) if to_codec.upper() != 'PCM' else pcm_data
+            # Check if we have the required codecs
+            if not from_is_pcm and not from_codec_obj:
+                logger.error(f"Unsupported codec: {from_codec}")
+                return data
+            if not to_is_pcm and not to_codec_obj:
+                logger.error(f"Unsupported codec: {to_codec}")
+                return data
+            
+            # Decode to PCM first if needed
+            if from_is_pcm:
+                pcm_data = data
+            else:
+                pcm_data = from_codec_obj.decode(data)
+            
+            # Encode to target format if needed
+            if to_is_pcm:
+                return pcm_data
+            else:
+                return to_codec_obj.encode(pcm_data)
             
         except Exception as e:
             logger.error(f"Audio conversion error: {e}")

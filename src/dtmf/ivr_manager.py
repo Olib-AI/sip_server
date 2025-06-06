@@ -677,6 +677,29 @@ class IVRManager:
             tone_amplitude=prompt_config.get("tone_amplitude", 0.3)
         )
     
+    async def start(self):
+        """Start the IVR manager."""
+        # Start the cleanup task
+        if not hasattr(self, '_cleanup_task') or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._cleanup_expired_sessions())
+        logger.info("IVR manager started")
+    
+    async def stop(self):
+        """Stop the IVR manager."""
+        # End all active sessions
+        for call_id in list(self.active_sessions.keys()):
+            await self.end_ivr_session(call_id, "stopping")
+        
+        # Cancel cleanup task
+        if hasattr(self, '_cleanup_task'):
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        
+        logger.info("IVR manager stopped")
+    
     async def cleanup(self):
         """Cleanup IVR manager resources."""
         try:

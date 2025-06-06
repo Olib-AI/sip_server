@@ -102,8 +102,9 @@ class DTMFProcessor:
         # Custom handlers
         self.custom_handlers: Dict[str, Callable] = {}
         
-        # Start cleanup task
-        self._cleanup_task = asyncio.create_task(self._cleanup_expired_sequences())
+        # Initialize cleanup task as None - start it when start() is called
+        self._cleanup_task = None
+        self._running = False
         
     def add_pattern(self, pattern: DTMFPattern):
         """Add DTMF pattern."""
@@ -133,6 +134,36 @@ class DTMFProcessor:
         # We'll treat this as a custom handler
         self.add_custom_handler("ivr_handler", handler)
         logger.info(f"Added DTMF event handler")
+    
+    async def start(self):
+        """Start the DTMF processor."""
+        if self._running:
+            return
+        
+        self._running = True
+        # Start cleanup task
+        self._cleanup_task = asyncio.create_task(self._cleanup_expired_sequences())
+        logger.info("DTMF processor started")
+    
+    async def stop(self):
+        """Stop the DTMF processor."""
+        if not self._running:
+            return
+        
+        self._running = False
+        
+        # Cancel cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+            self._cleanup_task = None
+        
+        # Clear all active sequences
+        self.active_sequences.clear()
+        logger.info("DTMF processor stopped")
     
     async def process_dtmf_event(self, event: DTMFEvent) -> Optional[Dict[str, Any]]:
         """Process incoming DTMF event."""
@@ -394,9 +425,12 @@ class DTMFProcessor:
     
     async def _cleanup_expired_sequences(self):
         """Cleanup expired DTMF sequences."""
-        while True:
+        while self._running:
             try:
                 await asyncio.sleep(self.cleanup_interval)
+                
+                if not self._running:
+                    break
                 
                 current_time = time.time()
                 expired_calls = []
@@ -409,6 +443,8 @@ class DTMFProcessor:
                     logger.debug(f"Cleaning up expired DTMF sequence for call {call_id}")
                     self._clear_sequence(call_id)
                     
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"Error in DTMF cleanup task: {e}")
     

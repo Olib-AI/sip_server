@@ -115,7 +115,7 @@ def test_database_url(test_config):
     return test_config["database"]["url"]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_db_engine(test_database_url):
     """Test database engine with cleanup."""
     engine = create_engine(test_database_url, echo=False)
@@ -151,7 +151,7 @@ def mock_ai_websocket_manager():
     return manager
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def call_manager(mock_ai_websocket_manager, mock_config):
     """Create test call manager."""
     manager = CallManager(max_concurrent_calls=10, ai_websocket_manager=mock_ai_websocket_manager)
@@ -160,7 +160,7 @@ async def call_manager(mock_ai_websocket_manager, mock_config):
     await manager.stop()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def websocket_bridge(mock_config):
     """Create test WebSocket bridge."""
     bridge = WebSocketBridge(
@@ -177,7 +177,7 @@ def audio_processor():
     return AudioProcessor()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def rtp_manager():
     """Create test RTP manager."""
     manager = RTPManager(port_range=(10000, 11000))
@@ -185,7 +185,7 @@ async def rtp_manager():
     await manager.cleanup_all()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def dtmf_detector():
     """Create test DTMF detector."""
     detector = DTMFDetector(enable_rfc2833=True, enable_inband=True)
@@ -193,7 +193,7 @@ async def dtmf_detector():
     detector.cleanup()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def dtmf_processor(mock_ai_websocket_manager, call_manager):
     """Create test DTMF processor."""
     processor = DTMFProcessor(mock_ai_websocket_manager, call_manager)
@@ -202,7 +202,7 @@ async def dtmf_processor(mock_ai_websocket_manager, call_manager):
     await processor.stop()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def ivr_manager(call_manager, dtmf_processor):
     """Create test IVR manager."""
     manager = IVRManager(call_manager, dtmf_processor)
@@ -211,7 +211,7 @@ async def ivr_manager(call_manager, dtmf_processor):
     await manager.stop()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def music_on_hold_manager(call_manager):
     """Create test music on hold manager."""
     manager = MusicOnHoldManager(call_manager)
@@ -220,7 +220,7 @@ async def music_on_hold_manager(call_manager):
     await manager.stop()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def sms_manager(mock_ai_websocket_manager):
     """Create test SMS manager."""
     manager = SMSManager(ai_websocket_manager=mock_ai_websocket_manager)
@@ -240,7 +240,7 @@ def api_client():
     return TestClient(app)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def mock_websocket():
     """Mock WebSocket connection."""
     websocket = AsyncMock(spec=WebSocketServerProtocol)
@@ -393,7 +393,7 @@ def sample_sms_data():
     }
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def mock_kamailio_rpc():
     """Mock Kamailio RPC server for testing."""
     responses = {

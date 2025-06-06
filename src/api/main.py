@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import httpx
 import psutil
@@ -56,7 +56,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "timestamp": datetime.now(datetime.UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "sip-server"
     }
 
