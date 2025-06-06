@@ -113,6 +113,8 @@ RUN echo '[supervisord]' > /etc/supervisord.conf && \
 
 # Make startup scripts executable
 RUN chmod +x /app/scripts/startup.sh && \
+    chmod +x /app/scripts/validate-startup.sh && \
+    chmod +x /app/scripts/health-check.sh && \
     chmod +x /app/scripts/startup-debug.sh || true
 
 # Expose ports
