@@ -332,3 +332,156 @@ class SIPAuthResponse(BaseModel):
     reason: Optional[str] = None
     account_locked: bool = False
     account_inactive: bool = False
+
+
+# Trunk Management Schemas
+
+class TrunkCreate(BaseModel):
+    """Schema for creating a SIP trunk."""
+    trunk_id: str = Field(..., min_length=3, max_length=100, description="Unique trunk identifier")
+    name: str = Field(..., min_length=1, max_length=200, description="Trunk display name")
+    provider: str = Field(..., min_length=1, max_length=100, description="Provider name (e.g., 'skyetel', 'flowroute')")
+    proxy_address: str = Field(..., description="SIP proxy address")
+    proxy_port: int = Field(5060, ge=1, le=65535, description="SIP proxy port")
+    registrar_address: Optional[str] = Field(None, description="Registrar address (if different from proxy)")
+    registrar_port: int = Field(5060, ge=1, le=65535, description="Registrar port")
+    username: Optional[str] = Field(None, description="Authentication username")
+    password: Optional[str] = Field(None, description="Authentication password")
+    realm: Optional[str] = Field(None, description="Authentication realm")
+    auth_method: str = Field("digest", description="Authentication method")
+    transport: str = Field("UDP", pattern="^(UDP|TCP|TLS|WS|WSS)$", description="Transport protocol")
+    supports_registration: bool = Field(True, description="Trunk supports registration")
+    supports_outbound: bool = Field(True, description="Trunk supports outbound calls")
+    supports_inbound: bool = Field(True, description="Trunk supports inbound calls")
+    dial_prefix: str = Field("", description="Prefix to add when dialing")
+    strip_digits: int = Field(0, ge=0, description="Number of digits to strip from destination")
+    prepend_digits: str = Field("", description="Digits to prepend to destination")
+    max_concurrent_calls: int = Field(100, ge=1, description="Maximum concurrent calls")
+    calls_per_second_limit: int = Field(10, ge=1, description="Call rate limit per second")
+    preferred_codecs: List[str] = Field(["PCMU", "PCMA"], description="Preferred audio codecs")
+    enable_dtmf_relay: bool = Field(True, description="Enable DTMF relay")
+    rtp_timeout: int = Field(60, ge=10, description="RTP timeout in seconds")
+    heartbeat_interval: int = Field(30, ge=5, description="Heartbeat interval in seconds")
+    registration_expire: int = Field(3600, ge=60, description="Registration expiry in seconds")
+    failover_timeout: int = Field(30, ge=5, description="Failover timeout in seconds")
+    backup_trunks: List[str] = Field([], description="List of backup trunk IDs")
+    allowed_ips: List[str] = Field([], description="Allowed IP addresses for this trunk")
+    
+    @field_validator('trunk_id')
+    @classmethod
+    def validate_trunk_id(cls, v):
+        if not v.replace('_', '').replace('-', '').isalnum():
+            raise ValueError('Trunk ID must contain only alphanumeric characters, hyphens, and underscores')
+        return v.lower()
+
+
+class TrunkUpdate(BaseModel):
+    """Schema for updating a SIP trunk."""
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    provider: Optional[str] = Field(None, min_length=1, max_length=100)
+    proxy_address: Optional[str] = None
+    proxy_port: Optional[int] = Field(None, ge=1, le=65535)
+    registrar_address: Optional[str] = None
+    registrar_port: Optional[int] = Field(None, ge=1, le=65535)
+    username: Optional[str] = None
+    password: Optional[str] = None
+    realm: Optional[str] = None
+    auth_method: Optional[str] = None
+    transport: Optional[str] = Field(None, pattern="^(UDP|TCP|TLS|WS|WSS)$")
+    supports_registration: Optional[bool] = None
+    supports_outbound: Optional[bool] = None
+    supports_inbound: Optional[bool] = None
+    dial_prefix: Optional[str] = None
+    strip_digits: Optional[int] = Field(None, ge=0)
+    prepend_digits: Optional[str] = None
+    max_concurrent_calls: Optional[int] = Field(None, ge=1)
+    calls_per_second_limit: Optional[int] = Field(None, ge=1)
+    preferred_codecs: Optional[List[str]] = None
+    enable_dtmf_relay: Optional[bool] = None
+    rtp_timeout: Optional[int] = Field(None, ge=10)
+    heartbeat_interval: Optional[int] = Field(None, ge=5)
+    registration_expire: Optional[int] = Field(None, ge=60)
+    failover_timeout: Optional[int] = Field(None, ge=5)
+    backup_trunks: Optional[List[str]] = None
+    allowed_ips: Optional[List[str]] = None
+
+
+class TrunkInfo(BaseModel):
+    """Schema for trunk information."""
+    id: int
+    trunk_id: str
+    name: str
+    provider: str
+    proxy_address: str
+    proxy_port: int
+    registrar_address: Optional[str]
+    registrar_port: int
+    username: Optional[str]
+    realm: Optional[str]
+    auth_method: str
+    transport: str
+    supports_registration: bool
+    supports_outbound: bool
+    supports_inbound: bool
+    dial_prefix: str
+    strip_digits: int
+    prepend_digits: str
+    max_concurrent_calls: int
+    calls_per_second_limit: int
+    preferred_codecs: List[str]
+    enable_dtmf_relay: bool
+    rtp_timeout: int
+    heartbeat_interval: int
+    registration_expire: int
+    failover_timeout: int
+    backup_trunks: List[str]
+    allowed_ips: List[str]
+    status: str
+    failure_count: int
+    last_registration: Optional[datetime]
+    total_calls: int
+    successful_calls: int
+    failed_calls: int
+    current_calls: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class TrunkList(BaseModel):
+    """Schema for trunk list response."""
+    trunks: List[TrunkInfo]
+    total: int
+    page: int
+    per_page: int
+
+
+class TrunkStatus(BaseModel):
+    """Schema for trunk status."""
+    trunk_id: str
+    name: str
+    provider: str
+    status: str  # active/inactive/failed/registering
+    last_registration: Optional[datetime]
+    registration_expires: Optional[datetime]
+    total_calls: int
+    successful_calls: int
+    failed_calls: int
+    current_calls: int
+    success_rate: float
+    failure_count: int
+    uptime_seconds: Optional[float] = None
+
+
+class TrunkStats(BaseModel):
+    """Schema for trunk statistics."""
+    total_trunks: int
+    active_trunks: int
+    inactive_trunks: int
+    total_calls: int
+    successful_calls: int
+    failed_calls: int
+    current_calls: int
+    overall_success_rate: float

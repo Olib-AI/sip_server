@@ -156,11 +156,17 @@ curl -H "Authorization: Bearer <your-jwt-token>" \
 - `DELETE /api/numbers/block/{number}` - Unblock a number
 - `GET /api/numbers/blocked` - List blocked numbers
 
-#### Trunk Management
-- `POST /api/trunks` - Add SIP trunk
-- `GET /api/trunks` - List configured trunks
-- `PUT /api/trunks/{trunk_id}` - Update trunk
-- `DELETE /api/trunks/{trunk_id}` - Remove trunk
+#### Trunk Management (Database-Driven)
+- `POST /api/trunks/` - Create SIP trunk (any wholesale provider)
+- `GET /api/trunks/` - List trunks with pagination and filtering
+- `GET /api/trunks/{trunk_id}` - Get specific trunk details
+- `PUT /api/trunks/{trunk_id}` - Update trunk configuration
+- `DELETE /api/trunks/{trunk_id}` - Delete trunk
+- `GET /api/trunks/{trunk_id}/status` - Get trunk status and statistics
+- `POST /api/trunks/{trunk_id}/activate` - Activate trunk
+- `POST /api/trunks/{trunk_id}/deactivate` - Deactivate trunk
+- `GET /api/trunks/{trunk_id}/credentials` - Get SIP client config
+- `GET /api/trunks/stats/summary` - Get overall trunk statistics
 
 ### Example API Calls
 
@@ -246,28 +252,104 @@ RTP_PORT_MIN=10000
 RTP_PORT_MAX=20000
 ```
 
-### VOIP Provider Configuration
-Configure your VOIP provider to forward calls to your SIP server:
-- **SIP URI**: `sip:your-number@your-sip-domain.com`
-- **Transport**: UDP/TCP/TLS
+### Wholesale Provider Configuration
+Configure wholesale SIP providers for cost-effective calling:
+- **DID Numbers**: $1-3/month flat rate (no per-minute charges)
+- **Termination**: $0.001-0.005/minute wholesale rates
+- **Transport**: UDP/TCP/TLS support
 - **Codecs**: PCMU (G.711 μ-law), PCMA (G.711 A-law)
 
-Example trunk configuration:
+#### Create Skyetel Trunk (Recommended)
 ```bash
-curl -X POST http://localhost:8080/api/trunks \
+curl -X POST http://localhost:8080/api/trunks/ \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
   -d '{
-    "name": "Twilio Trunk",
-    "provider": "twilio",
-    "proxy_address": "your-account.pstn.twilio.com",
+    "trunk_id": "skyetel_main",
+    "name": "Skyetel Main Trunk",
+    "provider": "skyetel",
+    "proxy_address": "sip.skyetel.com",
     "proxy_port": 5060,
-    "username": "your-username",
-    "password": "your-password",
+    "username": "your_skyetel_username",
+    "password": "your_skyetel_password",
+    "realm": "sip.skyetel.com",
     "supports_outbound": true,
-    "supports_inbound": true
+    "supports_inbound": true,
+    "transport": "UDP",
+    "preferred_codecs": ["PCMU", "PCMA"],
+    "max_concurrent_calls": 100,
+    "calls_per_second_limit": 10
   }'
 ```
+
+#### Create DIDForSale Trunk (Alternative)
+```bash
+curl -X POST http://localhost:8080/api/trunks/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "trunk_id": "didforsale_main",
+    "name": "DIDForSale Wholesale Trunk",
+    "provider": "didforsale",
+    "proxy_address": "sip.didforsale.com",
+    "proxy_port": 5060,
+    "username": "your_did_username",
+    "password": "your_did_password",
+    "supports_outbound": true,
+    "supports_inbound": true,
+    "transport": "UDP",
+    "preferred_codecs": ["PCMU", "PCMA"]
+  }'
+```
+
+#### List and Manage Trunks
+```bash
+# List all trunks with filtering
+curl -H "Authorization: Bearer <token>" \
+  "http://localhost:8080/api/trunks/?provider=skyetel&status=active&page=1&per_page=10"
+
+# Get specific trunk details
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/trunks/skyetel_main
+
+# Activate trunk
+curl -X POST -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/trunks/skyetel_main/activate
+
+# Get trunk statistics
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/trunks/skyetel_main/status
+
+# Get overall trunk stats
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:8080/api/trunks/stats/summary
+```
+
+#### Update Trunk Configuration
+```bash
+curl -X PUT http://localhost:8080/api/trunks/skyetel_main \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "max_concurrent_calls": 200,
+    "calls_per_second_limit": 20
+  }'
+```
+
+## 💰 Cost Analysis
+
+### Wholesale SIP Provider Rates (2024)
+- **Voice termination**: $0.001-0.005/minute (US domestic)
+- **Voice origination**: $0.001-0.005/minute (US domestic)  
+- **SMS**: Provider-dependent (typically $0.003-0.01/message)
+- **DID number rental**: $1-3/month (US local)
+
+### Cost Comparison vs Retail Providers
+- **Twilio Programmable Voice**: $0.0085/min (70-750% more expensive)
+- **Vonage/RingCentral**: $0.02-0.10/min (400-2000% more expensive)
+- **Traditional carriers**: $0.05-0.25/min (1000-5000% more expensive)
+
+**Result**: Wholesale SIP providers offer 70-90% cost savings with your own infrastructure.
 
 ## 🔒 Security
 

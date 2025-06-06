@@ -1,137 +1,44 @@
-"""API routes for SIP trunk management."""
-from fastapi import APIRouter, HTTPException, Depends, status
+"""API routes for SIP trunk management using database."""
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from fastapi.security import HTTPBearer
+from sqlalchemy.orm import Session
+from sqlalchemy import and_, func
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
+from datetime import datetime, timezone
 import logging
+import hashlib
+import base64
 
-from ...sip.trunk_manager import (
-    SIPTrunkManager, TrunkConfig, TrunkCredentials, 
-    TrunkStatus, AuthMethod
-)
+from ...models.database import get_db, TrunkConfiguration
+from ...models.schemas import TrunkCreate, TrunkUpdate, TrunkInfo, TrunkList, TrunkStatus, TrunkStats
 from ...utils.auth import verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/trunks", tags=["trunks"])
 security = HTTPBearer()
 
-# Global trunk manager instance
-trunk_manager: Optional[SIPTrunkManager] = None
+
+def encrypt_password(password: str) -> str:
+    """Simple password encryption (use proper encryption in production)."""
+    if not password:
+        return ""
+    return base64.b64encode(password.encode()).decode()
 
 
-def get_trunk_manager() -> SIPTrunkManager:
-    """Get trunk manager instance."""
-    global trunk_manager
-    if trunk_manager is None:
-        trunk_manager = SIPTrunkManager()
-    return trunk_manager
+def decrypt_password(encrypted_password: str) -> str:
+    """Simple password decryption (use proper decryption in production)."""
+    if not encrypted_password:
+        return ""
+    try:
+        return base64.b64decode(encrypted_password.encode()).decode()
+    except Exception:
+        return ""
 
 
-# Pydantic models for API
-class TrunkCredentialsModel(BaseModel):
-    username: Optional[str] = None
-    password: Optional[str] = None
-    realm: Optional[str] = None
-    auth_method: str = "digest"
-    allowed_ips: List[str] = []
-    certificate_path: Optional[str] = None
-    private_key_path: Optional[str] = None
-
-
-class TrunkConfigModel(BaseModel):
-    trunk_id: str
-    name: str
-    provider: str
-    proxy_address: str
-    proxy_port: int = 5060
-    registrar_address: Optional[str] = None
-    registrar_port: int = 5060
-    credentials: TrunkCredentialsModel
-    transport: str = "UDP"
-    supports_registration: bool = True
-    supports_outbound: bool = True
-    supports_inbound: bool = True
-    dial_prefix: str = ""
-    strip_digits: int = 0
-    prepend_digits: str = ""
-    max_concurrent_calls: int = 100
-    calls_per_second_limit: int = 10
-    backup_trunks: List[str] = []
-    failover_timeout: int = 30
-    preferred_codecs: List[str] = ["PCMU", "PCMA"]
-    enable_dtmf_relay: bool = True
-    rtp_timeout: int = 60
-    heartbeat_interval: int = 30
-    registration_expire: int = 3600
-
-
-class TrunkStatusResponse(BaseModel):
-    trunk_id: str
-    name: str
-    provider: str
-    status: str
-    uptime_seconds: float
-    total_calls: int
-    successful_calls: int
-    failed_calls: int
-    current_calls: int
-    success_rate: float
-    failure_count: int
-    last_registration: Optional[float]
-
-
-class AllTrunksStatusResponse(BaseModel):
-    trunks: Dict[str, TrunkStatusResponse]
-    total_trunks: int
-    active_trunks: int
-    total_calls: int
-    failed_calls: int
-    active_calls: int
-
-
-def _convert_to_trunk_config(model: TrunkConfigModel) -> TrunkConfig:
-    """Convert API model to internal TrunkConfig."""
-    credentials = TrunkCredentials(
-        username=model.credentials.username,
-        password=model.credentials.password,
-        realm=model.credentials.realm,
-        auth_method=AuthMethod(model.credentials.auth_method),
-        allowed_ips=model.credentials.allowed_ips,
-        certificate_path=model.credentials.certificate_path,
-        private_key_path=model.credentials.private_key_path
-    )
-    
-    return TrunkConfig(
-        trunk_id=model.trunk_id,
-        name=model.name,
-        provider=model.provider,
-        proxy_address=model.proxy_address,
-        proxy_port=model.proxy_port,
-        registrar_address=model.registrar_address,
-        registrar_port=model.registrar_port,
-        credentials=credentials,
-        transport=model.transport,
-        supports_registration=model.supports_registration,
-        supports_outbound=model.supports_outbound,
-        supports_inbound=model.supports_inbound,
-        dial_prefix=model.dial_prefix,
-        strip_digits=model.strip_digits,
-        prepend_digits=model.prepend_digits,
-        max_concurrent_calls=model.max_concurrent_calls,
-        calls_per_second_limit=model.calls_per_second_limit,
-        backup_trunks=model.backup_trunks,
-        failover_timeout=model.failover_timeout,
-        preferred_codecs=model.preferred_codecs,
-        enable_dtmf_relay=model.enable_dtmf_relay,
-        rtp_timeout=model.rtp_timeout,
-        heartbeat_interval=model.heartbeat_interval,
-        registration_expire=model.registration_expire
-    )
-
-
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED, response_model=Dict[str, Any])
 async def create_trunk(
-    trunk_config: TrunkConfigModel,
+    trunk_data: TrunkCreate,
+    db: Session = Depends(get_db),
     token: str = Depends(security)
 ) -> Dict[str, Any]:
     """Create a new SIP trunk."""
@@ -139,173 +46,328 @@ async def create_trunk(
         # Verify authentication
         verify_token(token.credentials)
         
-        # Get trunk manager
-        manager = get_trunk_manager()
+        # Check if trunk_id already exists
+        existing_trunk = db.query(TrunkConfiguration).filter(
+            TrunkConfiguration.trunk_id == trunk_data.trunk_id
+        ).first()
         
-        # Convert to internal format
-        config = _convert_to_trunk_config(trunk_config)
-        
-        # Add trunk
-        success = await manager.add_trunk(config)
-        
-        if not success:
+        if existing_trunk:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to create trunk"
+                detail=f"Trunk with ID '{trunk_data.trunk_id}' already exists"
             )
+        
+        # Create new trunk
+        trunk = TrunkConfiguration(
+            trunk_id=trunk_data.trunk_id,
+            name=trunk_data.name,
+            provider=trunk_data.provider,
+            proxy_address=trunk_data.proxy_address,
+            proxy_port=trunk_data.proxy_port,
+            registrar_address=trunk_data.registrar_address,
+            registrar_port=trunk_data.registrar_port,
+            username=trunk_data.username,
+            password=encrypt_password(trunk_data.password) if trunk_data.password else None,
+            realm=trunk_data.realm,
+            auth_method=trunk_data.auth_method,
+            transport=trunk_data.transport,
+            supports_registration=trunk_data.supports_registration,
+            supports_outbound=trunk_data.supports_outbound,
+            supports_inbound=trunk_data.supports_inbound,
+            dial_prefix=trunk_data.dial_prefix,
+            strip_digits=trunk_data.strip_digits,
+            prepend_digits=trunk_data.prepend_digits,
+            max_concurrent_calls=trunk_data.max_concurrent_calls,
+            calls_per_second_limit=trunk_data.calls_per_second_limit,
+            preferred_codecs=trunk_data.preferred_codecs,
+            enable_dtmf_relay=trunk_data.enable_dtmf_relay,
+            rtp_timeout=trunk_data.rtp_timeout,
+            heartbeat_interval=trunk_data.heartbeat_interval,
+            registration_expire=trunk_data.registration_expire,
+            failover_timeout=trunk_data.failover_timeout,
+            backup_trunks=trunk_data.backup_trunks,
+            allowed_ips=trunk_data.allowed_ips,
+            status="inactive",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
+        )
+        
+        db.add(trunk)
+        db.commit()
+        db.refresh(trunk)
+        
+        logger.info(f"Created trunk {trunk_data.trunk_id} for provider {trunk_data.provider}")
         
         return {
             "message": "Trunk created successfully",
-            "trunk_id": trunk_config.trunk_id
+            "trunk_id": trunk.trunk_id,
+            "id": trunk.id
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
+        db.rollback()
         logger.error(f"Error creating trunk: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=f"Failed to create trunk: {str(e)}"
         )
 
 
-@router.get("/", response_model=AllTrunksStatusResponse)
-async def list_trunks(token: str = Depends(security)) -> AllTrunksStatusResponse:
-    """List all SIP trunks and their status."""
+@router.get("/", response_model=TrunkList)
+async def list_trunks(
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    provider: Optional[str] = Query(None, description="Filter by provider"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    db: Session = Depends(get_db),
+    token: str = Depends(security)
+) -> TrunkList:
+    """List all SIP trunks with pagination and filtering."""
     try:
         # Verify authentication
         verify_token(token.credentials)
         
-        # Get trunk manager
-        manager = get_trunk_manager()
+        # Build query with filters
+        query = db.query(TrunkConfiguration)
         
-        # Get all trunks status
-        status_data = await manager.get_all_trunks_status()
+        if provider:
+            query = query.filter(TrunkConfiguration.provider == provider)
+        
+        if status:
+            query = query.filter(TrunkConfiguration.status == status)
+        
+        # Get total count
+        total = query.count()
+        
+        # Apply pagination
+        offset = (page - 1) * per_page
+        trunks = query.offset(offset).limit(per_page).all()
         
         # Convert to response format
-        trunks_response = {}
-        for trunk_id, trunk_data in status_data["trunks"].items():
-            trunks_response[trunk_id] = TrunkStatusResponse(**trunk_data)
+        trunk_list = []
+        for trunk in trunks:
+            trunk_info = TrunkInfo(
+                id=trunk.id,
+                trunk_id=trunk.trunk_id,
+                name=trunk.name,
+                provider=trunk.provider,
+                proxy_address=trunk.proxy_address,
+                proxy_port=trunk.proxy_port,
+                registrar_address=trunk.registrar_address,
+                registrar_port=trunk.registrar_port,
+                username=trunk.username,
+                realm=trunk.realm,
+                auth_method=trunk.auth_method,
+                transport=trunk.transport,
+                supports_registration=trunk.supports_registration,
+                supports_outbound=trunk.supports_outbound,
+                supports_inbound=trunk.supports_inbound,
+                dial_prefix=trunk.dial_prefix,
+                strip_digits=trunk.strip_digits,
+                prepend_digits=trunk.prepend_digits,
+                max_concurrent_calls=trunk.max_concurrent_calls,
+                calls_per_second_limit=trunk.calls_per_second_limit,
+                preferred_codecs=trunk.preferred_codecs or ["PCMU", "PCMA"],
+                enable_dtmf_relay=trunk.enable_dtmf_relay,
+                rtp_timeout=trunk.rtp_timeout,
+                heartbeat_interval=trunk.heartbeat_interval,
+                registration_expire=trunk.registration_expire,
+                failover_timeout=trunk.failover_timeout,
+                backup_trunks=trunk.backup_trunks or [],
+                allowed_ips=trunk.allowed_ips or [],
+                status=trunk.status,
+                failure_count=trunk.failure_count,
+                last_registration=trunk.last_registration,
+                total_calls=trunk.total_calls,
+                successful_calls=trunk.successful_calls,
+                failed_calls=trunk.failed_calls,
+                current_calls=trunk.current_calls,
+                created_at=trunk.created_at,
+                updated_at=trunk.updated_at
+            )
+            trunk_list.append(trunk_info)
         
-        return AllTrunksStatusResponse(
-            trunks=trunks_response,
-            total_trunks=status_data["total_trunks"],
-            active_trunks=status_data["active_trunks"],
-            total_calls=status_data["total_calls"],
-            failed_calls=status_data["failed_calls"],
-            active_calls=status_data["active_calls"]
+        return TrunkList(
+            trunks=trunk_list,
+            total=total,
+            page=page,
+            per_page=per_page
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error listing trunks: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=f"Failed to list trunks: {str(e)}"
         )
 
 
-@router.get("/{trunk_id}", response_model=TrunkStatusResponse)
-async def get_trunk_status(
+@router.get("/{trunk_id}", response_model=TrunkInfo)
+async def get_trunk(
     trunk_id: str,
+    db: Session = Depends(get_db),
     token: str = Depends(security)
-) -> TrunkStatusResponse:
-    """Get status of a specific SIP trunk."""
+) -> TrunkInfo:
+    """Get specific trunk by ID."""
     try:
         # Verify authentication
         verify_token(token.credentials)
         
-        # Get trunk manager
-        manager = get_trunk_manager()
+        # Find trunk
+        trunk = db.query(TrunkConfiguration).filter(
+            TrunkConfiguration.trunk_id == trunk_id
+        ).first()
         
-        # Get trunk status
-        status_data = await manager.get_trunk_status(trunk_id)
-        
-        if not status_data:
+        if not trunk:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Trunk {trunk_id} not found"
+                detail=f"Trunk '{trunk_id}' not found"
             )
         
-        return TrunkStatusResponse(**status_data)
+        return TrunkInfo(
+            id=trunk.id,
+            trunk_id=trunk.trunk_id,
+            name=trunk.name,
+            provider=trunk.provider,
+            proxy_address=trunk.proxy_address,
+            proxy_port=trunk.proxy_port,
+            registrar_address=trunk.registrar_address,
+            registrar_port=trunk.registrar_port,
+            username=trunk.username,
+            realm=trunk.realm,
+            auth_method=trunk.auth_method,
+            transport=trunk.transport,
+            supports_registration=trunk.supports_registration,
+            supports_outbound=trunk.supports_outbound,
+            supports_inbound=trunk.supports_inbound,
+            dial_prefix=trunk.dial_prefix,
+            strip_digits=trunk.strip_digits,
+            prepend_digits=trunk.prepend_digits,
+            max_concurrent_calls=trunk.max_concurrent_calls,
+            calls_per_second_limit=trunk.calls_per_second_limit,
+            preferred_codecs=trunk.preferred_codecs or ["PCMU", "PCMA"],
+            enable_dtmf_relay=trunk.enable_dtmf_relay,
+            rtp_timeout=trunk.rtp_timeout,
+            heartbeat_interval=trunk.heartbeat_interval,
+            registration_expire=trunk.registration_expire,
+            failover_timeout=trunk.failover_timeout,
+            backup_trunks=trunk.backup_trunks or [],
+            allowed_ips=trunk.allowed_ips or [],
+            status=trunk.status,
+            failure_count=trunk.failure_count,
+            last_registration=trunk.last_registration,
+            total_calls=trunk.total_calls,
+            successful_calls=trunk.successful_calls,
+            failed_calls=trunk.failed_calls,
+            current_calls=trunk.current_calls,
+            created_at=trunk.created_at,
+            updated_at=trunk.updated_at
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting trunk status: {e}")
+        logger.error(f"Error getting trunk {trunk_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=f"Failed to get trunk: {str(e)}"
         )
 
 
-@router.put("/{trunk_id}")
+@router.put("/{trunk_id}", response_model=Dict[str, Any])
 async def update_trunk(
     trunk_id: str,
-    trunk_config: TrunkConfigModel,
+    trunk_update: TrunkUpdate,
+    db: Session = Depends(get_db),
     token: str = Depends(security)
 ) -> Dict[str, Any]:
-    """Update SIP trunk configuration."""
+    """Update trunk configuration."""
     try:
         # Verify authentication
         verify_token(token.credentials)
         
-        # Ensure trunk_id matches
-        if trunk_config.trunk_id != trunk_id:
+        # Find trunk
+        trunk = db.query(TrunkConfiguration).filter(
+            TrunkConfiguration.trunk_id == trunk_id
+        ).first()
+        
+        if not trunk:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Trunk ID mismatch"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Trunk '{trunk_id}' not found"
             )
         
-        # Get trunk manager
-        manager = get_trunk_manager()
+        # Update fields
+        update_data = trunk_update.model_dump(exclude_unset=True)
         
-        # Remove existing trunk
-        await manager.remove_trunk(trunk_id)
+        for field, value in update_data.items():
+            if field == "password" and value:
+                # Encrypt password
+                setattr(trunk, field, encrypt_password(value))
+            else:
+                setattr(trunk, field, value)
         
-        # Add updated trunk
-        config = _convert_to_trunk_config(trunk_config)
-        success = await manager.add_trunk(config)
+        trunk.updated_at = datetime.now(timezone.utc)
         
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to update trunk"
-            )
+        db.commit()
+        db.refresh(trunk)
+        
+        logger.info(f"Updated trunk {trunk_id}")
         
         return {
             "message": "Trunk updated successfully",
-            "trunk_id": trunk_id
+            "trunk_id": trunk_id,
+            "updated_fields": list(update_data.keys())
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating trunk: {e}")
+        db.rollback()
+        logger.error(f"Error updating trunk {trunk_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=f"Failed to update trunk: {str(e)}"
         )
 
 
-@router.delete("/{trunk_id}")
+@router.delete("/{trunk_id}", response_model=Dict[str, Any])
 async def delete_trunk(
     trunk_id: str,
+    db: Session = Depends(get_db),
     token: str = Depends(security)
 ) -> Dict[str, Any]:
-    """Delete SIP trunk."""
+    """Delete trunk."""
     try:
         # Verify authentication
         verify_token(token.credentials)
         
-        # Get trunk manager
-        manager = get_trunk_manager()
+        # Find trunk
+        trunk = db.query(TrunkConfiguration).filter(
+            TrunkConfiguration.trunk_id == trunk_id
+        ).first()
         
-        # Remove trunk
-        success = await manager.remove_trunk(trunk_id)
-        
-        if not success:
+        if not trunk:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Trunk {trunk_id} not found"
+                detail=f"Trunk '{trunk_id}' not found"
             )
+        
+        # Check if trunk has active calls
+        if trunk.current_calls > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete trunk with {trunk.current_calls} active calls"
+            )
+        
+        db.delete(trunk)
+        db.commit()
+        
+        logger.info(f"Deleted trunk {trunk_id}")
         
         return {
             "message": "Trunk deleted successfully",
@@ -315,60 +377,253 @@ async def delete_trunk(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting trunk: {e}")
+        db.rollback()
+        logger.error(f"Error deleting trunk {trunk_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=f"Failed to delete trunk: {str(e)}"
         )
 
 
-@router.post("/{trunk_id}/route")
-async def route_call_via_trunk(
+@router.get("/{trunk_id}/status", response_model=TrunkStatus)
+async def get_trunk_status(
     trunk_id: str,
-    call_data: Dict[str, Any],
+    db: Session = Depends(get_db),
     token: str = Depends(security)
-) -> Dict[str, Any]:
-    """Route a call via specific trunk."""
+) -> TrunkStatus:
+    """Get trunk status information."""
     try:
         # Verify authentication
         verify_token(token.credentials)
         
-        # Get trunk manager
-        manager = get_trunk_manager()
+        # Find trunk
+        trunk = db.query(TrunkConfiguration).filter(
+            TrunkConfiguration.trunk_id == trunk_id
+        ).first()
         
-        # Extract call information
-        call_id = call_data.get("call_id")
-        destination = call_data.get("destination")
-        
-        if not call_id or not destination:
+        if not trunk:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="call_id and destination are required"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Trunk '{trunk_id}' not found"
             )
         
-        # Route call
-        route_info = await manager.route_outbound_call(
-            call_id, destination, {"preferred_trunk": trunk_id}
+        # Calculate success rate
+        success_rate = 0.0
+        if trunk.total_calls > 0:
+            success_rate = (trunk.successful_calls / trunk.total_calls) * 100
+        
+        # Calculate registration expiry
+        registration_expires = None
+        if trunk.last_registration and trunk.supports_registration:
+            registration_expires = datetime.fromtimestamp(
+                trunk.last_registration.timestamp() + trunk.registration_expire,
+                tz=timezone.utc
+            )
+        
+        return TrunkStatus(
+            trunk_id=trunk.trunk_id,
+            name=trunk.name,
+            provider=trunk.provider,
+            status=trunk.status,
+            last_registration=trunk.last_registration,
+            registration_expires=registration_expires,
+            total_calls=trunk.total_calls,
+            successful_calls=trunk.successful_calls,
+            failed_calls=trunk.failed_calls,
+            current_calls=trunk.current_calls,
+            success_rate=success_rate,
+            failure_count=trunk.failure_count
         )
         
-        if not route_info:
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting trunk status {trunk_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get trunk status: {str(e)}"
+        )
+
+
+@router.get("/stats/summary", response_model=TrunkStats)
+async def get_trunk_stats(
+    db: Session = Depends(get_db),
+    token: str = Depends(security)
+) -> TrunkStats:
+    """Get overall trunk statistics."""
+    try:
+        # Verify authentication
+        verify_token(token.credentials)
+        
+        # Get aggregated stats
+        stats = db.query(
+            func.count(TrunkConfiguration.id).label('total_trunks'),
+            func.sum(func.case((TrunkConfiguration.status == 'active', 1), else_=0)).label('active_trunks'),
+            func.sum(func.case((TrunkConfiguration.status == 'inactive', 1), else_=0)).label('inactive_trunks'),
+            func.sum(TrunkConfiguration.total_calls).label('total_calls'),
+            func.sum(TrunkConfiguration.successful_calls).label('successful_calls'),
+            func.sum(TrunkConfiguration.failed_calls).label('failed_calls'),
+            func.sum(TrunkConfiguration.current_calls).label('current_calls')
+        ).first()
+        
+        # Calculate overall success rate
+        overall_success_rate = 0.0
+        if stats.total_calls and stats.total_calls > 0:
+            overall_success_rate = (stats.successful_calls / stats.total_calls) * 100
+        
+        return TrunkStats(
+            total_trunks=stats.total_trunks or 0,
+            active_trunks=stats.active_trunks or 0,
+            inactive_trunks=stats.inactive_trunks or 0,
+            total_calls=stats.total_calls or 0,
+            successful_calls=stats.successful_calls or 0,
+            failed_calls=stats.failed_calls or 0,
+            current_calls=stats.current_calls or 0,
+            overall_success_rate=overall_success_rate
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting trunk stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get trunk stats: {str(e)}"
+        )
+
+
+@router.post("/{trunk_id}/activate", response_model=Dict[str, Any])
+async def activate_trunk(
+    trunk_id: str,
+    db: Session = Depends(get_db),
+    token: str = Depends(security)
+) -> Dict[str, Any]:
+    """Activate a trunk."""
+    try:
+        # Verify authentication
+        verify_token(token.credentials)
+        
+        # Find trunk
+        trunk = db.query(TrunkConfiguration).filter(
+            TrunkConfiguration.trunk_id == trunk_id
+        ).first()
+        
+        if not trunk:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Unable to route call via trunk"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Trunk '{trunk_id}' not found"
             )
         
+        trunk.status = "active"
+        trunk.updated_at = datetime.now(timezone.utc)
+        
+        db.commit()
+        
+        logger.info(f"Activated trunk {trunk_id}")
+        
         return {
-            "message": "Call routed successfully",
-            "call_id": call_id,
+            "message": "Trunk activated successfully",
             "trunk_id": trunk_id,
-            "route_info": route_info
+            "status": "active"
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error routing call via trunk: {e}")
+        db.rollback()
+        logger.error(f"Error activating trunk {trunk_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail=f"Failed to activate trunk: {str(e)}"
+        )
+
+
+@router.post("/{trunk_id}/deactivate", response_model=Dict[str, Any])
+async def deactivate_trunk(
+    trunk_id: str,
+    db: Session = Depends(get_db),
+    token: str = Depends(security)
+) -> Dict[str, Any]:
+    """Deactivate a trunk."""
+    try:
+        # Verify authentication
+        verify_token(token.credentials)
+        
+        # Find trunk
+        trunk = db.query(TrunkConfiguration).filter(
+            TrunkConfiguration.trunk_id == trunk_id
+        ).first()
+        
+        if not trunk:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Trunk '{trunk_id}' not found"
+            )
+        
+        trunk.status = "inactive"
+        trunk.updated_at = datetime.now(timezone.utc)
+        
+        db.commit()
+        
+        logger.info(f"Deactivated trunk {trunk_id}")
+        
+        return {
+            "message": "Trunk deactivated successfully",
+            "trunk_id": trunk_id,
+            "status": "inactive"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deactivating trunk {trunk_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to deactivate trunk: {str(e)}"
+        )
+
+
+@router.get("/{trunk_id}/credentials", response_model=Dict[str, Any])
+async def get_trunk_credentials(
+    trunk_id: str,
+    db: Session = Depends(get_db),
+    token: str = Depends(security)
+) -> Dict[str, Any]:
+    """Get trunk credentials for SIP client configuration."""
+    try:
+        # Verify authentication
+        verify_token(token.credentials)
+        
+        # Find trunk
+        trunk = db.query(TrunkConfiguration).filter(
+            TrunkConfiguration.trunk_id == trunk_id
+        ).first()
+        
+        if not trunk:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Trunk '{trunk_id}' not found"
+            )
+        
+        return {
+            "trunk_id": trunk.trunk_id,
+            "name": trunk.name,
+            "provider": trunk.provider,
+            "proxy_address": trunk.proxy_address,
+            "proxy_port": trunk.proxy_port,
+            "registrar_address": trunk.registrar_address or trunk.proxy_address,
+            "registrar_port": trunk.registrar_port,
+            "username": trunk.username,
+            "realm": trunk.realm,
+            "transport": trunk.transport,
+            "registration_expire": trunk.registration_expire,
+            "preferred_codecs": trunk.preferred_codecs or ["PCMU", "PCMA"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting trunk credentials {trunk_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get trunk credentials: {str(e)}"
         )

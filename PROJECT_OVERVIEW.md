@@ -85,17 +85,18 @@ User Phone → VOIP Provider → SIP Server (Kamailio) → Call Manager → WebS
 - **Networking**: Dedicated namespace with network policies for security
 
 ## Customer Integration Flow
-1. **VOIP Registration**: Customers register with providers (Twilio, Vonage, 3CX, etc.)
-2. **Trunk Configuration**: Configure provider to forward calls to our SIP server
-3. **Authentication**: Our system validates calls and establishes secure WebSocket to AI
+1. **Wholesale Provider Setup**: Customers register with wholesale providers (Skyetel, DIDForSale, etc.)
+2. **Database Trunk Configuration**: Add provider credentials via API - no environment variables needed
+3. **DID Number Purchasing**: Buy phone numbers at $1-3/month flat rate (no per-minute charges)
 4. **Real-time Processing**: AI platform processes conversation with <600ms total latency
 5. **Response Delivery**: TTS audio automatically resampled and delivered back to caller
 
 ## Competitive Advantages
 ### Cost Benefits
-- **70%+ Cost Reduction**: Direct SIP handling eliminates provider markup
-- **Volume Pricing**: Direct trunk relationships for better rates
-- **No Platform Fees**: Eliminate per-minute Twilio charges
+- **70-95% Cost Reduction**: Wholesale providers vs retail telephony services
+- **Ultra-low Termination**: $0.001-0.005/minute vs Twilio's $0.0085/minute
+- **Flat DID Pricing**: $1-3/month vs variable per-minute charges
+- **No Platform Fees**: Direct wholesale relationships eliminate middleman costs
 
 ### Technical Superiority  
 - **Ultra-Low Latency**: <600ms total including AI processing (vs 1200ms+ with Twilio)
@@ -142,7 +143,9 @@ User Phone → VOIP Provider → SIP Server (Kamailio) → Call Manager → WebS
 - ✅ Kubernetes configuration ready
 
 **Next Steps:**
-1. Configure VOIP provider trunks
-2. Set AI platform WebSocket URL
-3. Deploy to production Kubernetes cluster
-4. Monitor real-world call flows
+1. Add wholesale provider trunks via database API
+2. Purchase DID numbers from providers  
+3. Configure provider-side routing to your SIP server
+4. Set AI platform WebSocket URL
+5. Deploy to production Kubernetes cluster
+6. Monitor real-world call flows and costs
