@@ -456,10 +456,11 @@ async def get_trunk_stats(
         verify_token(token.credentials)
         
         # Get aggregated stats
+        from sqlalchemy import case
         stats = db.query(
             func.count(TrunkConfiguration.id).label('total_trunks'),
-            func.sum(func.case((TrunkConfiguration.status == 'active', 1), else_=0)).label('active_trunks'),
-            func.sum(func.case((TrunkConfiguration.status == 'inactive', 1), else_=0)).label('inactive_trunks'),
+            func.sum(case((TrunkConfiguration.status == 'active', 1), else_=0)).label('active_trunks'),
+            func.sum(case((TrunkConfiguration.status == 'inactive', 1), else_=0)).label('inactive_trunks'),
             func.sum(TrunkConfiguration.total_calls).label('total_calls'),
             func.sum(TrunkConfiguration.successful_calls).label('successful_calls'),
             func.sum(TrunkConfiguration.failed_calls).label('failed_calls'),

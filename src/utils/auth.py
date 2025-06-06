@@ -207,3 +207,7 @@ class WebSocketAuthenticator:
         # WebSocket tokens have shorter expiry
         expires_delta = timedelta(minutes=60)
         return create_access_token(payload, expires_delta)
+
+
+# Alias for backward compatibility
+create_jwt_token = create_access_token
