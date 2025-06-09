@@ -4,6 +4,7 @@ import websockets
 import websockets.exceptions
 import json
 import logging
+import socket
 from typing import Dict, Any, Optional, Set, Callable
 from datetime import datetime, timezone
 import time
@@ -26,7 +27,8 @@ class WebSocketCallBridge:
         self.call_manager = call_manager
         self.ai_websocket_url = ai_websocket_url or config.websocket.ai_platform_url
         self.port = port or config.websocket.port
-        self.rtp_manager = RTPManager((config.audio.rtp_port_start, config.audio.rtp_port_end))
+        # Use port 10000 range for RTP to match Kamailio SDP
+        self.rtp_manager = RTPManager((10000, 10010))
         self.audio_processor = AudioProcessor()
         self.authenticator = WebSocketAuthenticator()
         
@@ -231,58 +233,121 @@ class WebSocketCallBridge:
     async def _setup_call_audio(self, call_id: str, websocket):
         """Set up audio processing for call."""
         try:
-            call_session = self.call_manager.get_call_session(call_id)
-            if not call_session:
+            # Check if we already have an active session for this call
+            existing_session = self.rtp_manager.get_session(call_id)
+            if existing_session:
+                logger.info(f"♻️ Reusing existing RTP session for call {call_id}")
                 return
             
-            # Create RTP session
-            rtp_session = await self.rtp_manager.create_session(
-                call_id=call_id,
-                remote_host="127.0.0.1",  # Will be updated with actual remote
-                remote_port=0,  # Will be updated with actual port
-                codec=call_session.codec
+            # CRITICAL: Always use port 10000 to match Kamailio's SDP response
+            # If port 10000 is in use, we need to free it first
+            local_port = 10000
+            
+            logger.info(f"🎧 Setting up RTP session for call {call_id} on port {local_port}")
+            
+            # Clean up any old sessions using port 10000
+            sessions_to_cleanup = []
+            for session_id, session in self.rtp_manager.sessions.items():
+                if session.local_port == local_port:
+                    logger.info(f"🧹 Cleaning up old RTP session {session_id} from port {local_port}")
+                    sessions_to_cleanup.append(session_id)
+            
+            for session_id in sessions_to_cleanup:
+                await self.rtp_manager.destroy_session(session_id)
+            
+            # Verify port is now available
+            import socket as socket_module
+            try:
+                test_sock = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_DGRAM)
+                test_sock.bind(('0.0.0.0', local_port))
+                test_sock.close()
+                logger.info(f"✅ Port {local_port} is now available")
+            except OSError as e:
+                logger.error(f"❌ Port {local_port} still in use after cleanup: {e}")
+                # Force cleanup by killing any remaining socket
+                try:
+                    import subprocess
+                    subprocess.run(['fuser', '-k', f'{local_port}/udp'], 
+                                 capture_output=True, check=False)
+                    logger.info(f"🔧 Force-killed processes using port {local_port}")
+                except:
+                    pass
+            
+            # Create RTP session manually to ensure correct port
+            from ..audio.rtp import RTPSession
+            rtp_session = RTPSession(
+                local_port=local_port,
+                remote_host="127.0.0.1",  # SIP client will send RTP here
+                remote_port=0,  # Will be set when we receive RTP
+                payload_type=0,  # PCMU
+                codec="PCMU"
             )
             
             # Set up audio callback to forward to WebSocket
-            async def audio_callback(audio_data: bytes):
-                await self._forward_audio_to_websocket(call_id, audio_data)
+            def audio_callback(audio_data: bytes):
+                logger.info(f"🎵 RTP callback received {len(audio_data)} bytes for call {call_id}")
+                # Use asyncio to handle the async forwarding
+                asyncio.create_task(self._forward_audio_to_websocket(call_id, audio_data))
             
             rtp_session.set_receive_callback(audio_callback)
             
-            logger.info(f"Audio setup complete for call {call_id}")
+            # Start the RTP session
+            await rtp_session.start()
+            
+            # Verify session is running
+            if rtp_session.running:
+                logger.info(f"✅ RTP session is running on port {local_port}")
+            else:
+                logger.error(f"❌ RTP session failed to start on port {local_port}")
+                return
+            
+            # Store in RTP manager manually
+            self.rtp_manager.sessions[call_id] = rtp_session
+            self.rtp_manager.used_ports.add(local_port)
+            
+            logger.info(f"✅ Audio setup complete for call {call_id} on port {local_port}")
             
         except Exception as e:
-            logger.error(f"Failed to setup audio for call {call_id}: {e}")
+            logger.error(f"❌ Failed to setup audio for call {call_id}: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def _forward_audio_to_websocket(self, call_id: str, audio_data: bytes):
         """Forward audio from RTP to WebSocket."""
         try:
             websocket = self.active_connections.get(call_id)
             if not websocket:
+                logger.debug(f"No WebSocket connection for call {call_id}")
                 return
             
-            # Convert audio format if needed
-            call_session = self.call_manager.get_call_session(call_id)
-            if call_session:
-                # Convert from SIP codec to PCM for AI platform
+            logger.debug(f"🎵 Forwarding {len(audio_data)} bytes of audio for call {call_id}")
+            
+            # Convert from PCMU/PCMA to PCM for AI platform
+            try:
                 pcm_data = self.audio_processor.convert_format(
                     audio_data, 
-                    call_session.codec, 
+                    "PCMU",  # Default codec from SIP
                     "PCM"
                 )
-                
-                # Send audio to AI platform
-                await self._send_message(websocket, {
-                    "type": "audio",
-                    "call_id": call_id,
-                    "audio_data": pcm_data.hex(),  # Hex encode for JSON
-                    "format": "PCM",
-                    "sample_rate": get_config().audio.sample_rate,
-                    "channels": 1
-                })
+            except Exception as e:
+                logger.warning(f"Audio conversion failed, sending raw data: {e}")
+                pcm_data = audio_data
+            
+            # Send audio to AI platform
+            await self._send_message(websocket, {
+                "type": "audio",
+                "call_id": call_id,
+                "audio_data": pcm_data.hex(),  # Hex encode for JSON
+                "format": "PCM", 
+                "sample_rate": 8000,  # Standard telephony sample rate
+                "channels": 1,
+                "timestamp": time.time()
+            })
+            
+            logger.debug(f"✅ Sent {len(pcm_data)} bytes of PCM audio to AI platform")
             
         except Exception as e:
-            logger.error(f"Error forwarding audio for call {call_id}: {e}")
+            logger.error(f"❌ Error forwarding audio for call {call_id}: {e}")
     
     async def _handle_auth_message(self, websocket, data: Dict[str, Any]):
         """Handle authentication messages - already handled in main loop."""
