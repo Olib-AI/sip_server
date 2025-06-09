@@ -296,7 +296,7 @@ class WebSocketCallBridge:
             
             # Send audio as binary WebSocket message (AI platform expects this)
             logger.debug(f"🎵 Sending {len(pcm_data)} bytes as binary WebSocket message")
-            await websocket.send_bytes(pcm_data)
+            await websocket.send(pcm_data)
             
             logger.debug(f"✅ Sent {len(pcm_data)} bytes of PCM audio to AI platform")
         except Exception as e:
