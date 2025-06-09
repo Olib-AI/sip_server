@@ -490,6 +490,16 @@ class WebSocketCallBridge:
             from_user = call_data.get("from_number", call_data.get("from", "unknown"))
             to_user = call_data.get("to_number", call_data.get("to", "unknown"))
             
+            # Create authentication data for WebSocket headers
+            auth_message = self.authenticator.create_sip_auth_message(
+                call_id=call_id,
+                from_number=from_user,
+                to_number=to_user,
+                direction="incoming",
+                codec="PCMU",
+                sample_rate=8000
+            )
+            
             # Connect to AI platform WebSocket
             async with websockets.connect(self.ai_websocket_url) as websocket:
                 logger.info(f"✅ Connected to AI platform for call {call_id}")
@@ -497,16 +507,7 @@ class WebSocketCallBridge:
                 # Store the connection
                 self.active_connections[call_id] = websocket
                 
-                # Send authentication message first
-                auth_message = self.authenticator.create_sip_auth_message(
-                    call_id=call_id,
-                    from_number=from_user,
-                    to_number=to_user,
-                    direction="incoming",
-                    codec="PCMU",
-                    sample_rate=8000
-                )
-                
+                # Send the complete auth message as first message
                 await self._send_message(websocket, auth_message)
                 logger.info(f"🔐 Sent authentication message for call {call_id}")
                 
