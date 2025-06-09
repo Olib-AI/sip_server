@@ -523,6 +523,15 @@ class WebSocketCallBridge:
                         if message_type in self.message_handlers:
                             handler = self.message_handlers[message_type]
                             await handler(websocket, data)
+                        elif message_type == "ready":
+                            # AI platform is ready to receive audio
+                            logger.info(f"✅ AI platform ready for call {call_id}")
+                        elif message_type == "heartbeat":
+                            # AI platform heartbeat - respond with heartbeat ack
+                            await self._send_message(websocket, {
+                                "type": "heartbeat_ack",
+                                "timestamp": time.time()
+                            })
                         else:
                             logger.warning(f"Unknown message type from AI platform: {message_type}")
                             
@@ -532,7 +541,13 @@ class WebSocketCallBridge:
                         logger.error(f"Error processing AI platform message: {e}")
                         
         except websockets.exceptions.ConnectionClosed as e:
-            logger.warning(f"AI platform connection closed for call {call_id}: {e}")
+            # Check if it's a service restart (code 1012)
+            if hasattr(e, 'code') and e.code == 1012:
+                logger.warning(f"AI platform restarted during call {call_id}: {e}")
+                # Attempt reconnection for service restart
+                await self._attempt_reconnection(call_id, call_data)
+            else:
+                logger.warning(f"AI platform connection closed for call {call_id}: {e}")
         except websockets.exceptions.InvalidStatusCode as e:
             logger.error(f"AI platform rejected connection for call {call_id}: HTTP {e.status_code}")
         except websockets.exceptions.InvalidURI as e:
@@ -543,6 +558,23 @@ class WebSocketCallBridge:
             # Clean up connection
             self.active_connections.pop(call_id, None)
             logger.info(f"🔌 Disconnected from AI platform for call {call_id}")
+    
+    async def _attempt_reconnection(self, call_id: str, call_data: Dict[str, Any], max_attempts: int = 3):
+        """Attempt to reconnect to AI platform after service restart."""
+        for attempt in range(max_attempts):
+            try:
+                logger.info(f"🔄 Attempting reconnection {attempt + 1}/{max_attempts} for call {call_id}")
+                await asyncio.sleep(2)  # Wait 2 seconds before retry
+                
+                # Try to reconnect
+                await self._connect_to_ai_platform(call_id, call_data)
+                logger.info(f"✅ Successfully reconnected to AI platform for call {call_id}")
+                return
+                
+            except Exception as e:
+                logger.warning(f"Reconnection attempt {attempt + 1} failed for call {call_id}: {e}")
+                
+        logger.error(f"❌ All reconnection attempts failed for call {call_id}")
     
     # Public API for SIP server integration
     
