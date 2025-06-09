@@ -35,6 +35,7 @@ class SIPIntegrationServer:
         self.websocket_bridge: Optional[WebSocketCallBridge] = None
         self.api_server_task: Optional[asyncio.Task] = None
         self.websocket_task: Optional[asyncio.Task] = None
+        self.permanent_rtp_session = None
         self.is_running = False
         
         # Override with JSON config file if provided
@@ -78,6 +79,52 @@ class SIPIntegrationServer:
             force=True  # Reconfigure logging
         )
     
+    async def _start_permanent_rtp_listener(self):
+        """Start a permanent RTP listener on port 10000 for incoming calls."""
+        try:
+            from .audio.rtp import RTPSession
+            
+            # Create permanent RTP session for port 10000
+            self.permanent_rtp_session = RTPSession(
+                local_port=10000,
+                remote_host="",  # Will be set when we receive RTP
+                remote_port=0,  # Will be set when we receive RTP
+                payload_type=0,  # PCMU
+                codec="PCMU"
+            )
+            
+            # Set up callback to route audio to appropriate call
+            def permanent_audio_callback(audio_data: bytes, remote_addr=None):
+                logger.info(f"🎵 Permanent RTP listener received {len(audio_data)} bytes")
+                # Update remote address for outgoing packets if we got a new one
+                if remote_addr and (not self.permanent_rtp_session.remote_host or 
+                                   remote_addr[0] != self.permanent_rtp_session.remote_host or 
+                                   remote_addr[1] != self.permanent_rtp_session.remote_port):
+                    logger.info(f"🎯 Updating RTP remote address to {remote_addr}")
+                    self.permanent_rtp_session.remote_host = remote_addr[0]
+                    self.permanent_rtp_session.remote_port = remote_addr[1]
+                
+                # Route to active call via WebSocket bridge
+                if self.websocket_bridge:
+                    asyncio.create_task(
+                        self.websocket_bridge._route_rtp_to_active_call(audio_data)
+                    )
+            
+            self.permanent_rtp_session.set_receive_callback(permanent_audio_callback)
+            
+            # Start the permanent session
+            await self.permanent_rtp_session.start()
+            
+            if self.permanent_rtp_session.running:
+                logger.info("✅ Permanent RTP listener started on port 10000")
+            else:
+                logger.error("❌ Failed to start permanent RTP listener on port 10000")
+                
+        except Exception as e:
+            logger.error(f"❌ Error starting permanent RTP listener: {e}")
+            import traceback
+            traceback.print_exc()
+    
     async def start(self):
         """Start all services."""
         try:
@@ -109,6 +156,14 @@ class SIPIntegrationServer:
             # Start WebSocket bridge
             logger.info("Starting WebSocket bridge...")
             await self.websocket_bridge.start()
+            
+            # Start permanent RTP listener on port 10000
+            logger.info("Starting permanent RTP listener...")
+            await self._start_permanent_rtp_listener()
+            
+            # Connect permanent RTP session to WebSocket bridge
+            if self.permanent_rtp_session and self.websocket_bridge:
+                self.websocket_bridge.set_permanent_rtp_session(self.permanent_rtp_session)
             
             # Start API server
             logger.info("Starting API server...")
@@ -153,6 +208,11 @@ class SIPIntegrationServer:
             if self.websocket_bridge:
                 logger.info("Stopping WebSocket bridge...")
                 await self.websocket_bridge.stop()
+            
+            # Stop permanent RTP listener
+            if hasattr(self, 'permanent_rtp_session') and self.permanent_rtp_session:
+                logger.info("Stopping permanent RTP listener...")
+                await self.permanent_rtp_session.stop()
             
             # Cleanup call manager
             if self.call_manager:

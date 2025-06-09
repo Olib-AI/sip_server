@@ -1,6 +1,7 @@
 """RTP packet handling for real-time audio processing."""
 import struct
 import socket
+import errno
 import asyncio
 import time
 from typing import Dict, Callable, Optional, Tuple
@@ -200,6 +201,7 @@ class RTPSession:
         
         self.running = False
         self.receive_callback: Optional[Callable[[bytes], None]] = None
+        self.last_remote_addr = None
         
     async def start(self) -> None:
         """Start RTP session."""
@@ -266,32 +268,53 @@ class RTPSession:
     
     async def _receive_loop(self) -> None:
         """Main receive loop for RTP packets."""
+        logger.info(f"🎵 Starting RTP receive loop on port {self.local_port}")
+        
         while self.running:
             try:
-                data, addr = await asyncio.get_event_loop().run_in_executor(
-                    None, self.socket.recvfrom, 1500
-                )
-                
-                # Parse RTP packet
-                packet = RTPPacket.parse(data)
-                
-                # Add to jitter buffer
-                self.jitter_buffer.add_packet(packet)
-                
-            except socket.error:
-                # Socket might be closed
-                break
+                # Use async socket operations
+                try:
+                    data, addr = self.socket.recvfrom(1500)
+                    logger.info(f"📦 Received {len(data)} bytes from {addr}")
+                    
+                    # Store the remote address for potential outgoing packets
+                    self.last_remote_addr = addr
+                    
+                    # Parse RTP packet
+                    packet = RTPPacket.parse(data)
+                    logger.debug(f"Parsed RTP packet: seq={packet.header.sequence_number}, ts={packet.header.timestamp}")
+                    
+                    # Add to jitter buffer
+                    self.jitter_buffer.add_packet(packet)
+                    
+                except socket.error as e:
+                    if e.errno == errno.EWOULDBLOCK or e.errno == errno.EAGAIN:
+                        # No data available, continue
+                        await asyncio.sleep(0.001)
+                        continue
+                    else:
+                        logger.error(f"Socket error in RTP receive: {e}")
+                        break
+                        
             except Exception as e:
                 logger.error(f"Error receiving RTP packet: {e}")
                 await asyncio.sleep(0.001)  # Small delay to prevent tight loop
     
     async def _playout_loop(self) -> None:
         """Playout loop for jitter buffer."""
+        logger.info(f"🎵 Starting RTP playout loop on port {self.local_port}")
+        
         while self.running:
             try:
                 packet = self.jitter_buffer.get_next_packet()
                 if packet and self.receive_callback:
-                    self.receive_callback(packet.payload)
+                    logger.info(f"🎵 RTP callback delivering {len(packet.payload)} bytes for port {self.local_port}")
+                    # Check if callback expects remote_addr parameter
+                    try:
+                        self.receive_callback(packet.payload, self.last_remote_addr)
+                    except TypeError:
+                        # Fallback for callbacks that don't expect remote_addr
+                        self.receive_callback(packet.payload)
                 else:
                     await asyncio.sleep(0.020)  # 20ms frame interval
             except Exception as e:
