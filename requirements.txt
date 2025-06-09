@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard] 
-websockets
+websockets>=10.0
 pydantic
 sqlalchemy
 psycopg2-binary

@@ -481,6 +481,65 @@ class WebSocketCallBridge:
         except Exception as e:
             logger.error(f"Error sending WebSocket message: {e}")
     
+    async def _connect_to_ai_platform(self, call_id: str, call_data: Dict[str, Any]):
+        """Connect as client to AI platform WebSocket."""
+        try:
+            logger.info(f"🔗 Establishing connection to AI platform for call {call_id}")
+            
+            # Extract call information
+            from_user = call_data.get("from", "unknown")
+            to_user = call_data.get("to", "unknown")
+            
+            # Connect to AI platform WebSocket
+            async with websockets.connect(self.ai_websocket_url) as websocket:
+                logger.info(f"✅ Connected to AI platform for call {call_id}")
+                
+                # Store the connection
+                self.active_connections[call_id] = websocket
+                
+                # Send initial call notification
+                await self._send_message(websocket, {
+                    "type": "call_started",
+                    "call_id": call_id,
+                    "from": from_user,
+                    "to": to_user,
+                    "source_ip": call_data.get("source_ip"),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+                
+                # Set up audio processing for this call
+                await self._setup_call_audio(call_id, websocket)
+                
+                # Keep connection alive and handle messages
+                async for message in websocket:
+                    try:
+                        data = json.loads(message)
+                        message_type = data.get("type")
+                        
+                        if message_type in self.message_handlers:
+                            handler = self.message_handlers[message_type]
+                            await handler(websocket, data)
+                        else:
+                            logger.warning(f"Unknown message type from AI platform: {message_type}")
+                            
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Invalid JSON from AI platform: {e}")
+                    except Exception as e:
+                        logger.error(f"Error processing AI platform message: {e}")
+                        
+        except websockets.exceptions.ConnectionClosed as e:
+            logger.warning(f"AI platform connection closed for call {call_id}: {e}")
+        except websockets.exceptions.InvalidStatusCode as e:
+            logger.error(f"AI platform rejected connection for call {call_id}: HTTP {e.status_code}")
+        except websockets.exceptions.InvalidURI as e:
+            logger.error(f"Invalid WebSocket URI for call {call_id}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to connect to AI platform for call {call_id}: {type(e).__name__}: {e}")
+        finally:
+            # Clean up connection
+            self.active_connections.pop(call_id, None)
+            logger.info(f"🔌 Disconnected from AI platform for call {call_id}")
+    
     # Public API for SIP server integration
     
     async def notify_incoming_call(self, call_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -488,6 +547,13 @@ class WebSocketCallBridge:
         try:
             # Process call through call manager
             result = await self.call_manager.handle_incoming_call(call_data)
+            
+            # Connect to AI platform for this call
+            call_id = call_data.get("call_id")
+            if call_id and self.ai_websocket_url:
+                logger.info(f"🤖 Connecting to AI platform for call {call_id}: {self.ai_websocket_url}")
+                # Start background task to connect to AI platform
+                asyncio.create_task(self._connect_to_ai_platform(call_id, call_data))
             
             # Return result to SIP server
             return result
