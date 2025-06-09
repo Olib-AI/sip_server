@@ -206,8 +206,17 @@ class RTPSession:
     async def start(self) -> None:
         """Start RTP session."""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.bind(('0.0.0.0', self.local_port))
-        self.socket.setblocking(False)
+        # Enable address reuse
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            self.socket.bind(('0.0.0.0', self.local_port))
+            logger.info(f"✅ Socket successfully bound to 0.0.0.0:{self.local_port}")
+        except Exception as e:
+            logger.error(f"❌ Failed to bind socket to port {self.local_port}: {e}")
+            raise
+            
+        # Set socket timeout instead of non-blocking for use with run_in_executor
+        self.socket.settimeout(0.1)  # 100ms timeout
         self.running = True
         
         logger.info(f"RTP session started on port {self.local_port}")
@@ -270,23 +279,42 @@ class RTPSession:
         """Main receive loop for RTP packets."""
         logger.info(f"🎵 Starting RTP receive loop on port {self.local_port}")
         
+        # Log socket details for debugging
+        try:
+            sock_name = self.socket.getsockname()
+            logger.info(f"📡 RTP socket listening on {sock_name}")
+        except Exception as e:
+            logger.error(f"❌ Error getting socket name: {e}")
+        
+        packet_count = 0
         while self.running:
             try:
-                # Use async socket operations
+                # Use proper async socket operations with run_in_executor
                 try:
-                    data, addr = self.socket.recvfrom(1500)
-                    logger.info(f"📦 Received {len(data)} bytes from {addr}")
+                    data, addr = await asyncio.get_event_loop().run_in_executor(
+                        None, self.socket.recvfrom, 1500
+                    )
+                    packet_count += 1
+                    logger.info(f"📦 RTP packet #{packet_count}: Received {len(data)} bytes from {addr}")
                     
                     # Store the remote address for potential outgoing packets
                     self.last_remote_addr = addr
                     
+                    # Validate packet length
+                    if len(data) < 12:
+                        logger.warning(f"RTP packet too short: {len(data)} bytes from {addr}")
+                        continue
+                    
                     # Parse RTP packet
                     packet = RTPPacket.parse(data)
-                    logger.debug(f"Parsed RTP packet: seq={packet.header.sequence_number}, ts={packet.header.timestamp}")
+                    logger.debug(f"Parsed RTP packet: seq={packet.header.sequence_number}, ts={packet.header.timestamp}, pt={packet.header.payload_type}")
                     
                     # Add to jitter buffer
                     self.jitter_buffer.add_packet(packet)
                     
+                except socket.timeout:
+                    # Socket timeout - continue loop
+                    continue
                 except socket.error as e:
                     if e.errno == errno.EWOULDBLOCK or e.errno == errno.EAGAIN:
                         # No data available, continue
@@ -294,10 +322,13 @@ class RTPSession:
                         continue
                     else:
                         logger.error(f"Socket error in RTP receive: {e}")
-                        break
+                        await asyncio.sleep(0.001)
+                        continue
                         
             except Exception as e:
                 logger.error(f"Error receiving RTP packet: {e}")
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(0.001)  # Small delay to prevent tight loop
     
     async def _playout_loop(self) -> None:
@@ -310,10 +341,15 @@ class RTPSession:
                 if packet and self.receive_callback:
                     logger.info(f"🎵 RTP callback delivering {len(packet.payload)} bytes for port {self.local_port}")
                     # Check if callback expects remote_addr parameter
-                    try:
+                    import inspect
+                    callback_sig = inspect.signature(self.receive_callback)
+                    num_params = len(callback_sig.parameters)
+                    
+                    if num_params >= 2:
+                        # Callback expects remote_addr
                         self.receive_callback(packet.payload, self.last_remote_addr)
-                    except TypeError:
-                        # Fallback for callbacks that don't expect remote_addr
+                    else:
+                        # Callback only expects audio data
                         self.receive_callback(packet.payload)
                 else:
                     await asyncio.sleep(0.020)  # 20ms frame interval

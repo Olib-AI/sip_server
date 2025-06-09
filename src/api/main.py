@@ -61,6 +61,40 @@ async def health_check():
     }
 
 
+@app.get("/rtp-test")
+async def rtp_test():
+    """Test RTP port accessibility."""
+    import socket
+    test_results = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "port_10000_status": "unknown"
+    }
+    
+    try:
+        # Test if we can bind to port 10000 (should fail if already in use)
+        test_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        test_sock.bind(('0.0.0.0', 10000))
+        test_sock.close()
+        test_results["port_10000_status"] = "available"
+        test_results["warning"] = "Port 10000 is not in use - RTP listener may not be running"
+    except OSError as e:
+        test_results["port_10000_status"] = "in_use"
+        test_results["info"] = "Port 10000 is in use - RTP listener should be running"
+        
+    # Check if we have a websocket bridge with RTP session
+    from .sip_integration import websocket_bridge
+    if websocket_bridge and websocket_bridge.permanent_rtp_session:
+        test_results["rtp_session"] = {
+            "active": websocket_bridge.permanent_rtp_session.running,
+            "local_port": websocket_bridge.permanent_rtp_session.local_port,
+            "socket_bound": websocket_bridge.permanent_rtp_session.socket is not None
+        }
+    else:
+        test_results["rtp_session"] = None
+        
+    return test_results
+
+
 # Metrics endpoint for Prometheus
 @app.get("/metrics", response_class=PlainTextResponse)
 async def metrics():
