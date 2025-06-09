@@ -7,6 +7,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 import logging
+import hmac
+import hashlib
+import time
 from .config import get_config
 
 logger = logging.getLogger(__name__)
@@ -14,8 +17,10 @@ logger = logging.getLogger(__name__)
 # Get configuration
 config = get_config()
 SECRET_KEY = config.security.jwt_secret_key
+SIP_JWT_SECRET = config.security.sip_jwt_secret  # SIP-specific JWT secret
 ALGORITHM = config.security.jwt_algorithm
 ACCESS_TOKEN_EXPIRE_MINUTES = config.security.jwt_expire_minutes
+SIP_SHARED_SECRET = config.security.sip_shared_secret
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -193,20 +198,66 @@ class WebSocketAuthenticator:
         # In production, implement proper call ownership checks
         return True
     
-    def create_websocket_token(self, user_id: str, username: str, 
-                              call_id: Optional[str] = None) -> str:
-        """Create a WebSocket-specific token."""
+    def create_websocket_token(self, call_id: str, instance_id: str = "sip_server_1") -> str:
+        """Create a WebSocket-specific token for SIP authentication."""
+        current_time = datetime.now(timezone.utc)
+        
+        # Create payload exactly as AI platform expects
         payload = {
-            "sub": username,
-            "user_id": user_id,
             "call_id": call_id,
-            "scope": "websocket",
-            "iat": datetime.now(timezone.utc).timestamp()
+            "instance_id": instance_id,
+            "source": "sip_server",  # Required by AI platform
+            "iat": int(current_time.timestamp()),
+            "exp": int((current_time + timedelta(hours=1)).timestamp())
         }
         
-        # WebSocket tokens have shorter expiry
-        expires_delta = timedelta(minutes=60)
-        return create_access_token(payload, expires_delta)
+        # Use SIP-specific JWT secret
+        encoded_jwt = jwt.encode(payload, SIP_JWT_SECRET, algorithm=ALGORITHM)
+        return encoded_jwt
+    
+    def create_hmac_signature(self, call_id: str, timestamp: str) -> str:
+        """Create HMAC signature for authentication."""
+        message = f"{call_id}:{timestamp}"
+        signature = hmac.new(
+            SIP_SHARED_SECRET.encode('utf-8'),
+            message.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        return signature
+    
+    def create_sip_auth_message(self, call_id: str, from_number: str, to_number: str, 
+                               direction: str = "incoming", codec: str = "PCMU",
+                               sample_rate: int = 8000) -> Dict:
+        """Create complete authentication message for SIP WebSocket connection."""
+        timestamp = str(int(time.time()))
+        
+        # Create JWT token for this call with simplified payload
+        token = self.create_websocket_token(call_id=call_id)
+        
+        # Create HMAC signature
+        signature = self.create_hmac_signature(call_id, timestamp)
+        
+        # Build complete auth message
+        auth_message = {
+            "type": "auth",
+            "auth": {
+                "token": f"Bearer {token}",
+                "signature": signature,
+                "timestamp": timestamp,
+                "call_id": call_id
+            },
+            "call": {
+                "conversation_id": call_id,  # Use call_id as conversation_id
+                "from_number": from_number,
+                "to_number": to_number,
+                "direction": direction,
+                "sip_headers": {},
+                "codec": codec,
+                "sample_rate": sample_rate
+            }
+        }
+        
+        return auth_message
 
 
 # Alias for backward compatibility

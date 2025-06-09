@@ -60,6 +60,8 @@ class SecurityConfig:
     api_key: str = "change-this-in-production"
     # Separate JWT secret for SIP user management (higher security)
     sip_jwt_secret: str = "change-this-sip-secret-in-production"
+    # Shared secret for HMAC signatures with AI platform
+    sip_shared_secret: str = "change-this-sip-shared-secret-in-production"
 
 
 @dataclass
@@ -163,7 +165,8 @@ class AppConfig:
                 "jwt_secret_key": self.security.jwt_secret_key,
                 "jwt_algorithm": self.security.jwt_algorithm,
                 "jwt_expire_minutes": self.security.jwt_expire_minutes,
-                "api_key": self.security.api_key
+                "api_key": self.security.api_key,
+                "sip_shared_secret": self.security.sip_shared_secret
             },
             "audio": {
                 "sample_rate": self.audio.sample_rate,
@@ -305,7 +308,8 @@ class ConfigManager:
             jwt_algorithm=self._get_env("JWT_ALGORITHM", "HS256"),
             jwt_expire_minutes=self._get_env("JWT_EXPIRE_MINUTES", 30, int),
             api_key=self._get_env("API_KEY", "change-this-in-production"),
-            sip_jwt_secret=self._get_env("SIP_JWT_SECRET", "change-this-sip-secret-in-production")
+            sip_jwt_secret=self._get_env("SIP_JWT_SECRET", "change-this-sip-secret-in-production"),
+            sip_shared_secret=self._get_env("SIP_SHARED_SECRET", "change-this-sip-shared-secret-in-production")
         )
         
         # Call management configuration
