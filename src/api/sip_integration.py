@@ -78,15 +78,18 @@ async def handle_incoming_call(request: Request):
             if field not in call_data:
                 raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
         
-        # Convert to call manager format
+        # Convert to call manager format - ensure call_id is the SIP Call-ID
+        sip_call_id = call_data["call_id"]
         sip_data = {
-            "call_id": call_data["call_id"],
+            "call_id": sip_call_id,  # Use SIP Call-ID as our internal call_id
             "from_number": call_data["from"],
             "to_number": call_data["to"],
-            "sip_call_id": call_data["call_id"],
+            "sip_call_id": sip_call_id,  # Store original SIP Call-ID
             "remote_ip": call_data.get("source_ip", "unknown"),
             "headers": call_data.get("headers", {})
         }
+        
+        logger.info(f"📞 Processing call with SIP Call-ID: {sip_call_id}")
         
         # Process through WebSocket bridge
         result = await websocket_bridge.notify_incoming_call(sip_data)
@@ -156,7 +159,7 @@ async def handle_call_hangup(request: Request):
         body = await request.body()
         hangup_data = json.loads(body.decode())
         
-        logger.info(f"Call hangup notification: {hangup_data}")
+        logger.info(f"📞 Call hangup notification: {hangup_data}")
         
         # Validate required fields
         required_fields = ["call_id"]
@@ -166,6 +169,8 @@ async def handle_call_hangup(request: Request):
         
         call_id = hangup_data["call_id"]
         reason = hangup_data.get("reason", "normal")
+        
+        logger.info(f"📞 Hangup request for SIP Call-ID: {call_id}")
         
         # Process through WebSocket bridge
         result = await websocket_bridge.handle_call_hangup(call_id, reason)

@@ -27,8 +27,8 @@ class WebSocketCallBridge:
         self.call_manager = call_manager
         self.ai_websocket_url = ai_websocket_url or config.websocket.ai_platform_url
         self.port = port or config.websocket.port
-        # Use port 10000 range for RTP to match Kamailio SDP
-        self.rtp_manager = RTPManager((10000, 10010))
+        # Use dynamic port range for RTP sessions per call
+        self.rtp_manager = RTPManager((10000, 10100))
         self.audio_processor = AudioProcessor()
         self.authenticator = WebSocketAuthenticator()
         
@@ -37,7 +37,9 @@ class WebSocketCallBridge:
         self.call_to_conversation: Dict[str, str] = {}  # call_id -> conversation_id
         self.conversation_to_call: Dict[str, str] = {}  # conversation_id -> call_id
         self.connection_auth: Dict[str, Dict] = {}  # connection_id -> user_info
-        self.permanent_rtp_session = None  # Will be set later
+        
+        # Individual RTP sessions per call (no more permanent session)
+        self.call_rtp_sessions: Dict[str, Any] = {}  # call_id -> RTPSession
         self.call_rtp_destinations: Dict[str, Tuple[str, int]] = {}  # call_id -> (remote_host, remote_port)
         
         # Message handlers
@@ -227,6 +229,8 @@ class WebSocketCallBridge:
                 break
         
         if call_id:
+            logger.info(f"🧹 Cleaning up WebSocket connection for call {call_id}")
+            
             # Remove from tracking
             conversation_id = self.call_to_conversation.pop(call_id, None)
             if conversation_id:
@@ -236,10 +240,19 @@ class WebSocketCallBridge:
             # Clean up RTP destination tracking
             self.call_rtp_destinations.pop(call_id, None)
             
+            # Clean up individual RTP session for this call
+            rtp_session = self.call_rtp_sessions.pop(call_id, None)
+            if rtp_session:
+                try:
+                    await rtp_session.stop()
+                    logger.info(f"🎵 Stopped individual RTP session for call {call_id}")
+                except Exception as e:
+                    logger.error(f"Error stopping RTP session for call {call_id}: {e}")
+            
             # Clean up audio buffering
             await self._cleanup_audio_buffer(call_id)
             
-            # Cleanup RTP session
+            # Cleanup RTP session from manager
             await self.rtp_manager.destroy_session(call_id)
             
             # End call if still active
@@ -247,29 +260,63 @@ class WebSocketCallBridge:
             if call_session and call_session.state in [CallState.CONNECTED, CallState.RINGING]:
                 await self.call_manager.hangup_call(call_id, "websocket_disconnected")
             
-            logger.info(f"Cleaned up WebSocket connection for call {call_id}")
+            logger.info(f"✅ Completed cleanup for WebSocket connection for call {call_id}")
     
     async def _setup_call_audio(self, call_id: str, websocket):
-        """Set up audio processing for call using permanent RTP session."""
+        """Set up individual RTP session for this specific call."""
         try:
             # Check if we already have an active session for this call
-            existing_session = self.rtp_manager.get_session(call_id)
-            if existing_session:
-                logger.info(f"♻️ Reusing existing RTP session for call {call_id}")
+            if call_id in self.call_rtp_sessions:
+                logger.info(f"♻️ RTP session already exists for call {call_id}")
                 return
             
-            logger.info(f"🎧 Setting up audio for call {call_id} using permanent RTP session")
+            logger.info(f"🎧 Setting up individual RTP session for SIP Call-ID: {call_id}")
             
-            # Verify we have a permanent RTP session
-            if not self.permanent_rtp_session:
-                logger.error(f"❌ No permanent RTP session available for call {call_id}")
-                return
+            # Create a new individual RTP session for this call
+            from ..audio.rtp import RTPSession
             
-            # Register this call as using the permanent RTP session
-            # We don't create a new session, just track the call
-            self.rtp_manager.sessions[call_id] = self.permanent_rtp_session
+            # Allocate a unique port for this call
+            local_port = self.rtp_manager.allocate_port()
             
-            logger.info(f"✅ Audio setup complete for call {call_id} - using permanent RTP session on port 10000")
+            # Create RTP session for this specific call
+            rtp_session = RTPSession(
+                local_port=local_port,
+                remote_host="",  # Will be set when we receive RTP
+                remote_port=0,  # Will be set when we receive RTP
+                payload_type=0,  # PCMU
+                codec="PCMU"
+            )
+            
+            # Set up callback to route audio to this specific call's WebSocket
+            def call_audio_callback(audio_data: bytes, remote_addr=None):
+                logger.info(f"🎵 Call {call_id} RTP session received {len(audio_data)} bytes")
+                # Update remote address for outgoing packets if we got a new one
+                if remote_addr and (not rtp_session.remote_host or 
+                                   remote_addr[0] != rtp_session.remote_host or 
+                                   remote_addr[1] != rtp_session.remote_port):
+                    logger.info(f"🎯 Call {call_id}: Updating RTP remote address to {remote_addr}")
+                    rtp_session.remote_host = remote_addr[0]
+                    rtp_session.remote_port = remote_addr[1]
+                    # Store for outgoing audio
+                    self.call_rtp_destinations[call_id] = remote_addr
+                
+                # Route audio to this call's WebSocket
+                asyncio.create_task(
+                    self._forward_audio_to_websocket(call_id, audio_data)
+                )
+            
+            rtp_session.set_receive_callback(call_audio_callback)
+            
+            # Start the RTP session
+            await rtp_session.start()
+            
+            # Store the session
+            self.call_rtp_sessions[call_id] = rtp_session
+            
+            # Also register with RTP manager for tracking
+            self.rtp_manager.sessions[call_id] = rtp_session
+            
+            logger.info(f"✅ Individual RTP session created for SIP Call-ID: {call_id} on port {local_port}")
             
         except Exception as e:
             logger.error(f"❌ Failed to setup audio for call {call_id}: {e}")
@@ -397,12 +444,13 @@ class WebSocketCallBridge:
                 call_session.codec
             )
             
-            # Send via permanent RTP session
-            if self.permanent_rtp_session:
-                logger.info(f"🎵 Sending {len(sip_audio)} bytes via permanent RTP session")
-                await self.permanent_rtp_session.send_audio(sip_audio)
+            # Send via this call's individual RTP session
+            rtp_session = self.call_rtp_sessions.get(call_id)
+            if rtp_session:
+                logger.info(f"🎵 Call {call_id}: Sending {len(sip_audio)} bytes via individual RTP session")
+                await rtp_session.send_audio(sip_audio)
             else:
-                logger.warning("No permanent RTP session available for outgoing audio")
+                logger.warning(f"No RTP session available for call {call_id}")
             
         except Exception as e:
             logger.error(f"Error handling audio message: {e}")
@@ -546,31 +594,29 @@ class WebSocketCallBridge:
             logger.info(f"🎵 RTP transmission task ended for call {call_id}")
     
     async def _send_rtp_frame(self, call_id: str, frame_data: bytes):
-        """Send a single RTP frame."""
+        """Send a single RTP frame using the call's individual RTP session."""
         try:
+            # Get the individual RTP session for this call
+            rtp_session = self.call_rtp_sessions.get(call_id)
+            if not rtp_session:
+                logger.debug(f"No RTP session found for call {call_id}")
+                return
+            
             # Get the RTP destination for this call
             rtp_dest = self.call_rtp_destinations.get(call_id)
             if not rtp_dest:
                 logger.debug(f"No RTP destination found for call {call_id}")
                 return
             
-            # Send via permanent RTP session
-            if self.permanent_rtp_session:
-                # Temporarily update the permanent session's destination
-                old_host = self.permanent_rtp_session.remote_host
-                old_port = self.permanent_rtp_session.remote_port
-                
-                self.permanent_rtp_session.remote_host = rtp_dest[0]
-                self.permanent_rtp_session.remote_port = rtp_dest[1]
-                
-                await self.permanent_rtp_session.send_audio(frame_data)
-                logger.debug(f"🎵 Sent RTP frame: {len(frame_data)} bytes to {rtp_dest[0]}:{rtp_dest[1]}")
-                
-                # Restore the old destination
-                self.permanent_rtp_session.remote_host = old_host
-                self.permanent_rtp_session.remote_port = old_port
-            else:
-                logger.warning("No permanent RTP session available for outgoing audio")
+            # Update the session's destination if needed
+            if (rtp_session.remote_host != rtp_dest[0] or 
+                rtp_session.remote_port != rtp_dest[1]):
+                rtp_session.remote_host = rtp_dest[0]
+                rtp_session.remote_port = rtp_dest[1]
+            
+            # Send via this call's individual RTP session
+            await rtp_session.send_audio(frame_data)
+            logger.debug(f"🎵 Call {call_id}: Sent RTP frame {len(frame_data)} bytes to {rtp_dest[0]}:{rtp_dest[1]}")
                 
         except Exception as e:
             logger.error(f"Error sending RTP frame for call {call_id}: {e}")
@@ -711,6 +757,7 @@ class WebSocketCallBridge:
         self.call_manager.add_event_handler("call_state_changed", self._on_call_state_changed)
         self.call_manager.add_event_handler("call_accepted", self._on_call_accepted)
         self.call_manager.add_event_handler("call_completed", self._on_call_completed)
+        self.call_manager.add_event_handler("call_cleanup", self._on_call_cleanup)
         self.call_manager.add_event_handler("dtmf_detected", self._on_dtmf_detected)
     
     async def _on_call_state_changed(self, call_session: CallSession, old_state, new_state):
@@ -747,9 +794,10 @@ class WebSocketCallBridge:
             call_id = call_session.call_id
             websocket = self.active_connections.get(call_id)
             
-            logger.info(f"Processing call completed event for call {call_id}")
+            logger.info(f"🔚 Processing call completed event for call {call_id}")
             
             if websocket:
+                # Send final message to AI platform
                 await self._send_message(websocket, {
                     "type": "call_completed",
                     "call_id": call_id,
@@ -758,15 +806,39 @@ class WebSocketCallBridge:
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
                 
-                # Close WebSocket connection
-                await websocket.close()
-                logger.info(f"Closed WebSocket connection for completed call {call_id}")
+                # Very brief wait for the message to be sent
+                await asyncio.sleep(0.01)
+                
+                # Close WebSocket connection gracefully
+                try:
+                    await websocket.close(code=1000, reason="Call completed")
+                    logger.info(f"✅ Gracefully closed WebSocket for completed call {call_id}")
+                except Exception as e:
+                    logger.warning(f"Error closing WebSocket for call {call_id}: {e}")
             
-            # Force cleanup of this call
-            await self._force_cleanup_call(call_id)
+            # Schedule cleanup to happen after WebSocket close
+            asyncio.create_task(self._delayed_force_cleanup(call_id))
             
         except Exception as e:
             logger.error(f"Error handling call completed event: {e}")
+    
+    async def _on_call_cleanup(self, call_session: CallSession):
+        """Handle call cleanup events."""
+        try:
+            call_id = call_session.call_id
+            logger.info(f"🧹 Processing call cleanup event for call {call_id}")
+            
+            # This event is fired after the call is removed from active_calls
+            # Use it for final cleanup of WebSocket resources
+            await self._force_cleanup_call(call_id)
+            
+        except Exception as e:
+            logger.error(f"Error handling call cleanup event: {e}")
+    
+    async def _delayed_force_cleanup(self, call_id: str, delay: float = 0.1):
+        """Force cleanup after a small delay to allow WebSocket close to complete."""
+        await asyncio.sleep(delay)
+        await self._force_cleanup_call(call_id)
     
     async def _on_dtmf_detected(self, dtmf_event, result):
         """Handle DTMF detected events."""
@@ -896,11 +968,15 @@ class WebSocketCallBridge:
     async def notify_incoming_call(self, call_data: Dict[str, Any]) -> Dict[str, Any]:
         """Notify about incoming call from SIP server."""
         try:
+            call_id = call_data.get("call_id")
+            sip_call_id = call_data.get("sip_call_id")
+            
+            logger.info(f"📞 WebSocket bridge processing call - ID: {call_id}, SIP Call-ID: {sip_call_id}")
+            
             # Process call through call manager
             result = await self.call_manager.handle_incoming_call(call_data)
             
             # Connect to AI platform for this call
-            call_id = call_data.get("call_id")
             if call_id and self.ai_websocket_url:
                 logger.info(f"🤖 Connecting to AI platform for call {call_id}: {self.ai_websocket_url}")
                 # Start background task to connect to AI platform
@@ -929,63 +1005,105 @@ class WebSocketCallBridge:
     async def handle_call_hangup(self, call_id: str, reason: str = "normal") -> Dict[str, Any]:
         """Handle call hangup from SIP server (BYE message)."""
         try:
-            logger.info(f"Handling call hangup for {call_id}: {reason}")
+            logger.info(f"📞 WebSocket bridge handling call hangup for SIP Call-ID: {call_id}, reason: {reason}")
             
-            # Force cleanup of the call and WebSocket
+            # Check if this call exists in our tracking
+            found_call = False
+            if call_id in self.active_connections or call_id in self.call_rtp_sessions:
+                found_call = True
+                logger.info(f"✅ Found call {call_id} in WebSocket bridge tracking")
+            else:
+                logger.warning(f"⚠️ Call {call_id} not found in WebSocket bridge - checking for orphaned connections")
+                
+                # Look for orphaned connections (WebSocket connections without matching call IDs)
+                orphaned_calls = []
+                for tracked_call_id in list(self.active_connections.keys()):
+                    if tracked_call_id != call_id:
+                        # Check if this might be the same call (different ID format)
+                        logger.info(f"🔍 Found active connection for different call ID: {tracked_call_id}")
+                        orphaned_calls.append(tracked_call_id)
+                
+                # If we found orphaned connections, clean them up too
+                if orphaned_calls:
+                    logger.warning(f"🧹 Cleaning up {len(orphaned_calls)} orphaned connections: {orphaned_calls}")
+                    for orphaned_call_id in orphaned_calls:
+                        await self._force_cleanup_call(orphaned_call_id)
+                        found_call = True
+            
+            # First hangup via call manager to ensure proper state handling
+            hangup_success = await self.call_manager.hangup_call(call_id, reason)
+            
+            if not hangup_success:
+                logger.warning(f"⚠️ Call manager could not find call {call_id} for hangup")
+                
+                # Even if call manager doesn't find it, try to clean up WebSocket resources
+                if not found_call:
+                    # Check if there are any active connections that need cleanup
+                    if self.active_connections:
+                        logger.warning(f"🧹 Cleaning up all {len(self.active_connections)} active connections due to unmatched hangup")
+                        for orphaned_call_id in list(self.active_connections.keys()):
+                            await self._force_cleanup_call(orphaned_call_id)
+            
+            # Force cleanup of the call and WebSocket connections
             await self._force_cleanup_call(call_id)
             
-            # Also hangup via call manager to ensure proper state handling
-            await self.call_manager.hangup_call(call_id, reason)
+            logger.info(f"✅ Successfully handled hangup for call {call_id}")
             
             return {"success": True, "message": "Call hung up successfully"}
             
         except Exception as e:
-            logger.error(f"Error handling call hangup: {e}")
+            logger.error(f"Error handling call hangup for {call_id}: {e}")
             return {"success": False, "error": str(e)}
     
     def get_statistics(self) -> Dict[str, Any]:
         """Get bridge statistics."""
         return {
             "active_connections": len(self.active_connections),
+            "active_connection_ids": list(self.active_connections.keys()),
             "call_mappings": len(self.call_to_conversation),
-            "rtp_sessions": len(self.rtp_manager.sessions),
-            "call_manager_stats": self.call_manager.get_statistics()
+            "individual_rtp_sessions": len(self.call_rtp_sessions),
+            "rtp_session_ids": list(self.call_rtp_sessions.keys()),
+            "rtp_manager_sessions": len(self.rtp_manager.sessions),
+            "call_manager_stats": self.call_manager.get_statistics(),
+            "call_rtp_destinations": len(self.call_rtp_destinations)
         }
     
-    async def _route_rtp_to_active_call(self, audio_data: bytes, remote_addr: Tuple[str, int] = None):
-        """Route RTP audio from permanent listener to active call."""
+    async def handle_rtp_audio_for_call(self, call_id: str, audio_data: bytes, remote_addr: Tuple[str, int] = None):
+        """Handle RTP audio for a specific call (called by individual RTP sessions)."""
         try:
-            # Find the first active WebSocket connection
-            # In a real system, you'd need better routing logic
-            if not self.active_connections:
-                logger.debug("No active WebSocket connections to route RTP audio")
-                return
-                
-            # For now, route to the first active connection
-            call_id = next(iter(self.active_connections.keys()))
+            # This method is called by individual RTP session callbacks
+            # The audio routing is already handled by the callback setup in _setup_call_audio
+            logger.debug(f"🎵 Handling RTP audio for call {call_id}: {len(audio_data)} bytes")
             
-            # Store the RTP destination for this call
+            # Store the RTP destination for this call if provided
             if remote_addr and call_id:
                 self.call_rtp_destinations[call_id] = remote_addr
-                logger.info(f"🎯 Updated RTP destination for call {call_id}: {remote_addr}")
+                logger.debug(f"🎯 Updated RTP destination for call {call_id}: {remote_addr}")
             
-            logger.info(f"🎵 Routing RTP audio to call {call_id}")
-            
-            # Forward to WebSocket using existing method
+            # Forward to WebSocket (this is already done by the callback)
             await self._forward_audio_to_websocket(call_id, audio_data)
             
         except Exception as e:
-            logger.error(f"Error routing RTP audio: {e}")
+            logger.error(f"Error handling RTP audio for call {call_id}: {e}")
     
-    def set_permanent_rtp_session(self, rtp_session):
-        """Set the permanent RTP session for outgoing audio."""
-        self.permanent_rtp_session = rtp_session
-        logger.info("🎵 Connected permanent RTP session to WebSocket bridge")
+    def get_call_rtp_info(self, call_id: str) -> Optional[Dict[str, Any]]:
+        """Get RTP session info for a specific call."""
+        rtp_session = self.call_rtp_sessions.get(call_id)
+        if rtp_session:
+            return {
+                "call_id": call_id,
+                "local_port": rtp_session.local_port,
+                "remote_host": rtp_session.remote_host,
+                "remote_port": rtp_session.remote_port,
+                "codec": rtp_session.codec,
+                "running": rtp_session.running
+            }
+        return None
     
     async def _force_cleanup_call(self, call_id: str):
         """Force cleanup of a specific call."""
         try:
-            logger.info(f"Force cleaning up call {call_id}")
+            logger.info(f"🧹 Force cleaning up call {call_id}")
             
             # Remove from all tracking dictionaries
             conversation_id = self.call_to_conversation.pop(call_id, None)
@@ -996,10 +1114,20 @@ class WebSocketCallBridge:
             websocket = self.active_connections.pop(call_id, None)
             if websocket:
                 try:
-                    await websocket.close()
-                    logger.info(f"Forcefully closed WebSocket for call {call_id}")
+                    if not websocket.closed:
+                        await websocket.close(code=1000, reason="Call cleanup")
+                    logger.info(f"✅ Closed WebSocket for call {call_id}")
                 except Exception as e:
                     logger.warning(f"Error closing WebSocket for call {call_id}: {e}")
+            
+            # Clean up individual RTP session for this call
+            rtp_session = self.call_rtp_sessions.pop(call_id, None)
+            if rtp_session:
+                try:
+                    await rtp_session.stop()
+                    logger.info(f"🎵 Stopped individual RTP session for call {call_id}")
+                except Exception as e:
+                    logger.error(f"Error stopping RTP session for call {call_id}: {e}")
             
             # Clean up RTP destination tracking
             self.call_rtp_destinations.pop(call_id, None)
@@ -1007,10 +1135,10 @@ class WebSocketCallBridge:
             # Clean up audio buffering
             await self._cleanup_audio_buffer(call_id)
             
-            # Cleanup RTP session
+            # Cleanup RTP session from manager
             await self.rtp_manager.destroy_session(call_id)
             
-            logger.info(f"Completed force cleanup for call {call_id}")
+            logger.info(f"✅ Completed force cleanup for call {call_id}")
             
         except Exception as e:
             logger.error(f"Error in force cleanup for call {call_id}: {e}")

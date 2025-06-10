@@ -35,7 +35,7 @@ class SIPIntegrationServer:
         self.websocket_bridge: Optional[WebSocketCallBridge] = None
         self.api_server_task: Optional[asyncio.Task] = None
         self.websocket_task: Optional[asyncio.Task] = None
-        self.permanent_rtp_session = None
+        # No permanent RTP session - using individual sessions per call
         self.is_running = False
         
         # Override with JSON config file if provided
@@ -44,7 +44,7 @@ class SIPIntegrationServer:
         
         # Configure logging based on loaded config
         self._configure_logging()
-        logger.info(f"Configuration loaded from environment variables")
+        logger.info(f"Configuration loaded - Ready for concurrent call handling")
         
     def _load_json_config(self, config_path: str):
         """Load and merge JSON configuration file."""
@@ -79,49 +79,16 @@ class SIPIntegrationServer:
             force=True  # Reconfigure logging
         )
     
-    async def _start_permanent_rtp_listener(self):
-        """Start a permanent RTP listener on port 10000 for incoming calls."""
+    # Removed permanent RTP listener - now using individual RTP sessions per call
+    # This method is no longer needed as each call gets its own RTP session
+    async def _start_individual_call_handling(self):
+        """Initialize individual call handling system (replaces permanent RTP listener)."""
         try:
-            from .audio.rtp import RTPSession
-            
-            # Create permanent RTP session for port 10000
-            self.permanent_rtp_session = RTPSession(
-                local_port=10000,
-                remote_host="",  # Will be set when we receive RTP
-                remote_port=0,  # Will be set when we receive RTP
-                payload_type=0,  # PCMU
-                codec="PCMU"
-            )
-            
-            # Set up callback to route audio to appropriate call
-            def permanent_audio_callback(audio_data: bytes, remote_addr=None):
-                logger.info(f"🎵 Permanent RTP listener received {len(audio_data)} bytes")
-                # Update remote address for outgoing packets if we got a new one
-                if remote_addr and (not self.permanent_rtp_session.remote_host or 
-                                   remote_addr[0] != self.permanent_rtp_session.remote_host or 
-                                   remote_addr[1] != self.permanent_rtp_session.remote_port):
-                    logger.info(f"🎯 Updating RTP remote address to {remote_addr}")
-                    self.permanent_rtp_session.remote_host = remote_addr[0]
-                    self.permanent_rtp_session.remote_port = remote_addr[1]
-                
-                # Route to active call via WebSocket bridge
-                if self.websocket_bridge:
-                    asyncio.create_task(
-                        self.websocket_bridge._route_rtp_to_active_call(audio_data, remote_addr)
-                    )
-            
-            self.permanent_rtp_session.set_receive_callback(permanent_audio_callback)
-            
-            # Start the permanent session
-            await self.permanent_rtp_session.start()
-            
-            if self.permanent_rtp_session.running:
-                logger.info("✅ Permanent RTP listener started on port 10000")
-            else:
-                logger.error("❌ Failed to start permanent RTP listener on port 10000")
+            logger.info("🎧 Individual call handling system initialized")
+            logger.info("✅ Ready to create individual RTP sessions for each call")
                 
         except Exception as e:
-            logger.error(f"❌ Error starting permanent RTP listener: {e}")
+            logger.error(f"❌ Error initializing call handling system: {e}")
             import traceback
             traceback.print_exc()
     
@@ -157,13 +124,9 @@ class SIPIntegrationServer:
             logger.info("Starting WebSocket bridge...")
             await self.websocket_bridge.start()
             
-            # Start permanent RTP listener on port 10000
-            logger.info("Starting permanent RTP listener...")
-            await self._start_permanent_rtp_listener()
-            
-            # Connect permanent RTP session to WebSocket bridge
-            if self.permanent_rtp_session and self.websocket_bridge:
-                self.websocket_bridge.set_permanent_rtp_session(self.permanent_rtp_session)
+            # Initialize individual call handling system
+            logger.info("Initializing individual call handling system...")
+            await self._start_individual_call_handling()
             
             # Start API server
             logger.info("Starting API server...")
@@ -177,6 +140,7 @@ class SIPIntegrationServer:
             logger.info("SIP Integration Server started successfully")
             logger.info(f"API server listening on {self.config['api']['host']}:{self.config['api']['port']}")
             logger.info(f"WebSocket bridge on port {self.config['websocket']['port']}")
+            logger.info(f"Ready for concurrent calls with individual RTP sessions")
             
             # Wait for tasks to complete
             await asyncio.gather(
@@ -207,12 +171,13 @@ class SIPIntegrationServer:
             # Stop WebSocket bridge
             if self.websocket_bridge:
                 logger.info("Stopping WebSocket bridge...")
+                # Cleanup all active calls before stopping
+                for call_id in list(self.websocket_bridge.call_rtp_sessions.keys()):
+                    await self.websocket_bridge._force_cleanup_call(call_id)
                 await self.websocket_bridge.stop()
             
-            # Stop permanent RTP listener
-            if hasattr(self, 'permanent_rtp_session') and self.permanent_rtp_session:
-                logger.info("Stopping permanent RTP listener...")
-                await self.permanent_rtp_session.stop()
+            # No permanent RTP listener to stop - individual sessions are cleaned up by WebSocket bridge
+            logger.info("Individual call handling system will be cleaned up by WebSocket bridge...")
             
             # Cleanup call manager
             if self.call_manager:

@@ -837,6 +837,7 @@ class CallManager:
         """Hang up call."""
         call_session = self.active_calls.get(call_id)
         if not call_session:
+            logger.warning(f"Attempted to hangup unknown call {call_id}")
             return False
         
         logger.info(f"Hanging up call {call_id}: {reason}")
@@ -844,8 +845,9 @@ class CallManager:
         # Cleanup DTMF and interactive features
         await self._cleanup_call_features(call_id)
         
+        # Update call state based on reason
         if reason == "normal":
-            await self.update_call_state(call_id, CallState.COMPLETED)
+            await self.update_call_state(call_id, CallState.COMPLETED, {"hangup_reason": reason})
         else:
             await self.update_call_state(call_id, CallState.FAILED, {"hangup_reason": reason})
         
@@ -1027,6 +1029,8 @@ class CallManager:
     
     async def _complete_call(self, call_session: CallSession):
         """Complete call and cleanup."""
+        logger.info(f"Completing call {call_session.call_id} with state {call_session.state.value}")
+        
         # Update statistics
         if call_session.state == CallState.COMPLETED:
             self.completed_calls += 1
@@ -1041,16 +1045,26 @@ class CallManager:
         # Notify Kamailio about call completion  
         await self.kamailio_sync.notify_call_completion(call_session)
         
-        # Emit completion event
+        # Emit completion event BEFORE cleanup to allow handlers to access call data
         await self._emit_event("call_completed", call_session)
         
-        # Remove from active calls after delay (for cleanup)
-        asyncio.create_task(self._delayed_cleanup(call_session.call_id))
+        # Immediate cleanup instead of delayed - this ensures WebSocket disconnection
+        await self._immediate_cleanup(call_session.call_id)
     
-    async def _delayed_cleanup(self, call_id: str, delay: int = 60):
-        """Remove call from active calls after delay."""
-        await asyncio.sleep(delay)
-        self.active_calls.pop(call_id, None)
+    async def _immediate_cleanup(self, call_id: str):
+        """Immediately remove call from active calls and cleanup resources."""
+        try:
+            call_session = self.active_calls.pop(call_id, None)
+            if call_session:
+                logger.info(f"Immediately cleaned up call {call_id} from active calls")
+                
+                # Emit cleanup event for any remaining handlers
+                await self._emit_event("call_cleanup", call_session)
+            else:
+                logger.warning(f"Call {call_id} not found in active calls during cleanup")
+                
+        except Exception as e:
+            logger.error(f"Error during immediate cleanup of call {call_id}: {e}")
     
     def _check_concurrent_limits(self, call_session: CallSession) -> bool:
         """Check if call is within concurrent limits."""
@@ -1136,6 +1150,28 @@ class CallManager:
             # End all active calls
             for call_id in list(self.active_calls.keys()):
                 await self.hangup_call(call_id, "system_shutdown")
+            
+            # Wait a moment for call completions to process
+            await asyncio.sleep(1.0)
+            
+            # Force cleanup any remaining calls
+            remaining_calls = list(self.active_calls.keys())
+            if remaining_calls:
+                logger.warning(f"Force cleaning up {len(remaining_calls)} remaining calls")
+                for call_id in remaining_calls:
+                    self.active_calls.pop(call_id, None)
+                    # Emit cleanup event for any remaining resources
+                    call_session = CallSession(
+                        call_id=call_id,
+                        session_id="cleanup",
+                        direction=CallDirection.INBOUND,
+                        state=CallState.CANCELLED,
+                        priority=CallPriority.NORMAL,
+                        caller=CallParticipant(number="unknown"),
+                        callee=CallParticipant(number="unknown"),
+                        created_at=datetime.now(timezone.utc)
+                    )
+                    await self._emit_event("call_cleanup", call_session)
             
             # Cleanup subsystems
             await self.dtmf_processor.cleanup()
