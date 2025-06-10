@@ -57,9 +57,9 @@ class SIPClient:
     ) -> CallInfo:
         """Initiate an outgoing call."""
         try:
-            # Generate call ID
-            call_id = f"call_{datetime.now(timezone.utc).timestamp()}_{from_number}_{to_number}"
-            call_id = hashlib.md5(call_id.encode()).hexdigest()
+            # Generate call ID using UUID
+            import uuid
+            call_id = str(uuid.uuid4())
             
             # Prepare SIP INVITE
             sip_headers = headers or {}

@@ -107,7 +107,7 @@ class SIPIntegrationServer:
                 # Route to active call via WebSocket bridge
                 if self.websocket_bridge:
                     asyncio.create_task(
-                        self.websocket_bridge._route_rtp_to_active_call(audio_data)
+                        self.websocket_bridge._route_rtp_to_active_call(audio_data, remote_addr)
                     )
             
             self.permanent_rtp_session.set_receive_callback(permanent_audio_callback)

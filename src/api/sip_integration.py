@@ -145,6 +145,46 @@ async def handle_incoming_sms(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/sip/calls/hangup")
+async def handle_call_hangup(request: Request):
+    """Handle call hangup notification from Kamailio (BYE message)."""
+    try:
+        if not websocket_bridge:
+            raise HTTPException(status_code=503, detail="WebSocket bridge not initialized")
+        
+        # Parse request body
+        body = await request.body()
+        hangup_data = json.loads(body.decode())
+        
+        logger.info(f"Call hangup notification: {hangup_data}")
+        
+        # Validate required fields
+        required_fields = ["call_id"]
+        for field in required_fields:
+            if field not in hangup_data:
+                raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+        
+        call_id = hangup_data["call_id"]
+        reason = hangup_data.get("reason", "normal")
+        
+        # Process through WebSocket bridge
+        result = await websocket_bridge.handle_call_hangup(call_id, reason)
+        
+        # Return result to Kamailio
+        return JSONResponse(content={
+            "success": result.get("success", True),
+            "message": result.get("message", "Call hangup processed"),
+            "error": result.get("error")
+        })
+        
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in call hangup request")
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    except Exception as e:
+        logger.error(f"Error handling call hangup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/sip/calls/active")
 async def get_active_calls():
     """Get list of active calls."""

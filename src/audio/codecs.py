@@ -33,17 +33,51 @@ class PCMUCodec(AudioCodec):
     def encode(self, pcm_data: bytes) -> bytes:
         """Convert 16-bit PCM to μ-law."""
         try:
-            return audioop.lin2ulaw(pcm_data, 2)
+            logger.debug(f"🔄 PCMU encode: {len(pcm_data)} bytes PCM → μ-law")
+            if len(pcm_data) == 0:
+                logger.warning("⚠️ Empty PCM data for PCMU encoding")
+                return b''
+            
+            # Ensure data length is even (16-bit samples)
+            if len(pcm_data) % 2 != 0:
+                logger.warning(f"⚠️ PCM data length {len(pcm_data)} is not even, truncating")
+                pcm_data = pcm_data[:-1]
+            
+            ulaw_data = audioop.lin2ulaw(pcm_data, 2)
+            logger.debug(f"✅ PCMU encode complete: {len(pcm_data)} bytes → {len(ulaw_data)} bytes")
+            return ulaw_data
         except Exception as e:
-            logger.error(f"PCMU encode error: {e}")
+            logger.error(f"❌ PCMU encode error: {e}")
+            import traceback
+            traceback.print_exc()
             return b''
     
     def decode(self, ulaw_data: bytes) -> bytes:
         """Convert μ-law to 16-bit PCM."""
         try:
-            return audioop.ulaw2lin(ulaw_data, 2)
+            logger.debug(f"🔄 PCMU decode: {len(ulaw_data)} bytes μ-law → PCM")
+            if len(ulaw_data) == 0:
+                logger.warning("⚠️ Empty μ-law data for PCMU decoding")
+                return b''
+            
+            # Log first few bytes for debugging
+            if len(ulaw_data) >= 8:
+                logger.debug(f"📊 μ-law input: first 8 bytes: {ulaw_data[:8].hex()}")
+            
+            pcm_data = audioop.ulaw2lin(ulaw_data, 2)
+            logger.debug(f"✅ PCMU decode complete: {len(ulaw_data)} bytes → {len(pcm_data)} bytes")
+            
+            # Validate output
+            if len(pcm_data) >= 8:
+                import struct
+                first_samples = struct.unpack('<4h', pcm_data[:8])
+                logger.debug(f"📊 PCM output: first 4 samples: {first_samples}")
+            
+            return pcm_data
         except Exception as e:
-            logger.error(f"PCMU decode error: {e}")
+            logger.error(f"❌ PCMU decode error: {e}")
+            import traceback
+            traceback.print_exc()
             return b''
 
 
@@ -105,12 +139,15 @@ class AudioProcessor:
     def convert_format(self, data: bytes, from_codec: str, to_codec: str) -> bytes:
         """Convert audio between different formats."""
         try:
+            logger.info(f"🔄 Audio conversion: {from_codec} → {to_codec} ({len(data)} bytes)")
+            
             # Handle PCM as a special case
             from_is_pcm = from_codec.upper() == 'PCM'
             to_is_pcm = to_codec.upper() == 'PCM'
             
             # If both are PCM, no conversion needed
             if from_is_pcm and to_is_pcm:
+                logger.info("✅ No conversion needed (PCM → PCM)")
                 return data
             
             # Get codec objects for non-PCM formats
@@ -119,26 +156,39 @@ class AudioProcessor:
             
             # Check if we have the required codecs
             if not from_is_pcm and not from_codec_obj:
-                logger.error(f"Unsupported codec: {from_codec}")
+                logger.error(f"❌ Unsupported source codec: {from_codec}")
                 return data
             if not to_is_pcm and not to_codec_obj:
-                logger.error(f"Unsupported codec: {to_codec}")
+                logger.error(f"❌ Unsupported target codec: {to_codec}")
                 return data
+            
+            # Log input data characteristics
+            if len(data) >= 8:
+                logger.debug(f"📊 Input data: {len(data)} bytes, first 8 bytes: {data[:8].hex()}")
             
             # Decode to PCM first if needed
             if from_is_pcm:
+                logger.info("📥 Input is already PCM")
                 pcm_data = data
             else:
+                logger.info(f"📥 Decoding from {from_codec} to PCM")
                 pcm_data = from_codec_obj.decode(data)
+                logger.info(f"✅ Decoded: {len(data)} bytes → {len(pcm_data)} bytes PCM")
             
             # Encode to target format if needed
             if to_is_pcm:
+                logger.info("📤 Output format is PCM, conversion complete")
                 return pcm_data
             else:
-                return to_codec_obj.encode(pcm_data)
+                logger.info(f"📤 Encoding from PCM to {to_codec}")
+                result = to_codec_obj.encode(pcm_data)
+                logger.info(f"✅ Encoded: {len(pcm_data)} bytes PCM → {len(result)} bytes {to_codec}")
+                return result
             
         except Exception as e:
-            logger.error(f"Audio conversion error: {e}")
+            logger.error(f"❌ Audio conversion error ({from_codec} → {to_codec}): {e}")
+            import traceback
+            traceback.print_exc()
             return data
     
     def resample_audio(self, data: bytes, from_rate: int, to_rate: int, 

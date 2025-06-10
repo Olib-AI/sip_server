@@ -6,7 +6,7 @@ import json
 import logging
 import socket
 import base64
-from typing import Dict, Any, Optional, Set, Callable
+from typing import Dict, Any, Optional, Set, Callable, Tuple
 from datetime import datetime, timezone
 import time
 import uuid
@@ -39,6 +39,7 @@ class WebSocketCallBridge:
         self.conversation_to_call: Dict[str, str] = {}  # conversation_id -> call_id
         self.connection_auth: Dict[str, Dict] = {}  # connection_id -> user_info
         self.permanent_rtp_session = None  # Will be set later
+        self.call_rtp_destinations: Dict[str, Tuple[str, int]] = {}  # call_id -> (remote_host, remote_port)
         
         # Message handlers
         self.message_handlers: Dict[str, Callable] = {
@@ -48,7 +49,8 @@ class WebSocketCallBridge:
             "call_control": self._handle_call_control,
             "dtmf": self._handle_dtmf_message,
             "status": self._handle_status_message,
-            "conversation_end": self._handle_conversation_end
+            "conversation_end": self._handle_conversation_end,
+            "subtitle": self._handle_subtitle_message
         }
         
         # Register call manager events
@@ -223,6 +225,9 @@ class WebSocketCallBridge:
                 self.conversation_to_call.pop(conversation_id, None)
             self.active_connections.pop(call_id, None)
             
+            # Clean up RTP destination tracking
+            self.call_rtp_destinations.pop(call_id, None)
+            
             # Cleanup RTP session
             await self.rtp_manager.destroy_session(call_id)
             
@@ -268,39 +273,89 @@ class WebSocketCallBridge:
                 logger.debug(f"No WebSocket connection for call {call_id}")
                 return
             
-            logger.debug(f"🎵 Forwarding {len(audio_data)} bytes of audio for call {call_id}")
+            logger.info(f"🎵 Processing {len(audio_data)} bytes of RTP audio for call {call_id}")
             
-            # Convert from PCMU/PCMA to PCM for AI platform
+            # Validate input audio data
+            if len(audio_data) == 0:
+                logger.warning("⚠️ Received empty audio data")
+                return
+            
+            # Log raw audio data characteristics
+            logger.info(f"📊 Raw RTP data: {len(audio_data)} bytes, first 8 bytes: {audio_data[:8].hex()}")
+            
+            # Send raw μ-law (PCMU) directly to AI platform for high-power conversion
             try:
-                pcm_data = self.audio_processor.convert_format(
-                    audio_data, 
-                    "PCMU",  # Default codec from SIP
-                    "PCM"
-                )
+                logger.info(f"🎯 Preparing raw μ-law audio for AI platform (8kHz, 8-bit)")
                 
-                # Debug: Check if audio data contains actual audio (not silence)
+                # Use raw RTP payload as-is (already μ-law encoded)
+                ulaw_data = audio_data
+                
+                logger.info(f"✅ Raw μ-law ready: {len(ulaw_data)} bytes")
+                
+                # Comprehensive μ-law validation and analysis
                 import numpy as np
-                if len(pcm_data) >= 2:
-                    pcm_samples = np.frombuffer(pcm_data[:320], dtype=np.int16)  # First 160 samples
-                    max_amplitude = np.max(np.abs(pcm_samples)) if len(pcm_samples) > 0 else 0
-                    logger.debug(f"🎵 Audio amplitude check: max={max_amplitude}, mean={np.mean(np.abs(pcm_samples)):.1f}")
+                if len(ulaw_data) > 0:
+                    # Interpret as 8-bit unsigned integers (μ-law format)
+                    ulaw_samples = np.frombuffer(ulaw_data, dtype=np.uint8)
                     
-                    if max_amplitude > 100:  # Non-silence threshold
-                        logger.info(f"🔊 Real audio detected! Max amplitude: {max_amplitude}")
+                    # Calculate μ-law statistics
+                    min_val = np.min(ulaw_samples)
+                    max_val = np.max(ulaw_samples)
+                    mean_val = np.mean(ulaw_samples)
+                    unique_values = len(np.unique(ulaw_samples))
+                    
+                    logger.info(f"📊 μ-law Audio Stats:")
+                    logger.info(f"   📏 Samples: {len(ulaw_samples)} (8-bit μ-law)")
+                    logger.info(f"   📈 Value range: {min_val} - {max_val} (0-255)")
+                    logger.info(f"   📊 Mean value: {mean_val:.1f}")
+                    logger.info(f"   🎯 Unique values: {unique_values}/256")
+                    logger.info(f"   📊 Sample rate: 8000 Hz")
+                    logger.info(f"   📊 Duration: {len(ulaw_samples)/8000*1000:.1f}ms")
+                    
+                    # Check for audio quality indicators
+                    if unique_values < 5:
+                        logger.warning("⚠️ Very limited dynamic range (possible silence)")
+                    elif unique_values < 20:
+                        logger.warning(f"⚠️ Limited dynamic range ({unique_values} unique values)")
                     else:
-                        logger.debug(f"🔇 Silence or very quiet audio: {max_amplitude}")
+                        logger.info(f"✅ Good dynamic range ({unique_values} unique values)")
+                    
+                    # Check for common μ-law patterns
+                    if min_val == max_val:
+                        logger.warning(f"⚠️ Audio is constant value: {min_val} (silence or error)")
+                    elif np.all(ulaw_samples == 255) or np.all(ulaw_samples == 127):
+                        logger.warning("⚠️ Audio appears to be silence (μ-law silence values)")
+                    else:
+                        logger.info("✅ Audio contains varying μ-law values (good signal)")
+                    
+                    # Sample some μ-law values for debugging
+                    sample_values = ulaw_samples[:min(10, len(ulaw_samples))]
+                    logger.info(f"🎵 First 10 μ-law samples: {sample_values}")
+                    
+                    # Log hex representation for debugging
+                    if len(ulaw_data) >= 16:
+                        hex_sample = ulaw_data[:16].hex()
+                        logger.info(f"🔍 First 16 bytes (hex): {hex_sample}")
+                    
+                else:
+                    logger.warning("⚠️ Empty μ-law data")
                         
             except Exception as e:
-                logger.warning(f"Audio conversion failed, sending raw data: {e}")
-                pcm_data = audio_data
+                logger.error(f"❌ μ-law analysis failed: {e}")
+                ulaw_data = audio_data
+                import traceback
+                traceback.print_exc()
             
-            # Send audio as binary WebSocket message (AI platform expects this)
-            logger.debug(f"🎵 Sending {len(pcm_data)} bytes as binary WebSocket message")
-            await websocket.send(pcm_data)
+            # Send raw μ-law as binary WebSocket message
+            logger.info(f"📡 Sending {len(ulaw_data)} bytes of raw μ-law (8kHz, 8-bit) to AI platform")
+            await websocket.send(ulaw_data)
             
-            logger.debug(f"✅ Sent {len(pcm_data)} bytes of PCM audio to AI platform")
+            logger.info(f"✅ Successfully sent {len(ulaw_data)} bytes of μ-law audio to AI platform for call {call_id}")
+            
         except Exception as e:
             logger.error(f"❌ Error forwarding audio for call {call_id}: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def _handle_auth_message(self, websocket, data: Dict[str, Any]):
         """Handle authentication messages - already handled in main loop."""
@@ -344,6 +399,17 @@ class WebSocketCallBridge:
     async def _handle_audio_data_message(self, websocket, data: Dict[str, Any]):
         """Handle audio_data message from AI platform (new format)."""
         try:
+            # Find the call_id for this websocket
+            call_id = None
+            for cid, ws in self.active_connections.items():
+                if ws == websocket:
+                    call_id = cid
+                    break
+            
+            if not call_id:
+                logger.warning("No call_id found for websocket connection")
+                return
+            
             # Extract audio data from the nested structure
             audio_data_info = data.get("data", {})
             audio_b64 = audio_data_info.get("audio")
@@ -361,7 +427,7 @@ class WebSocketCallBridge:
                 logger.error(f"Failed to decode base64 audio: {e}")
                 return
             
-            logger.info(f"🎵 Received {len(pcm_data)} bytes of {codec} audio at {sample_rate}Hz from AI platform")
+            logger.info(f"🎵 Received {len(pcm_data)} bytes of {codec} audio at {sample_rate}Hz from AI platform for call {call_id}")
             
             # Convert sample rate if needed (AI platform sends 16kHz, SIP expects 8kHz)
             if sample_rate == 16000:
@@ -381,10 +447,27 @@ class WebSocketCallBridge:
                 logger.error(f"Audio format conversion failed: {e}")
                 sip_audio = pcm_data  # Fallback to raw data
             
-            # Send via permanent RTP session
+            # Get the RTP destination for this call
+            rtp_dest = self.call_rtp_destinations.get(call_id)
+            if not rtp_dest:
+                logger.warning(f"No RTP destination found for call {call_id}")
+                return
+            
+            # Send via permanent RTP session to the correct destination
             if self.permanent_rtp_session:
-                logger.info(f"🎵 Sending {len(sip_audio)} bytes via permanent RTP session to SIP caller")
+                # Temporarily update the permanent session's destination
+                old_host = self.permanent_rtp_session.remote_host
+                old_port = self.permanent_rtp_session.remote_port
+                
+                self.permanent_rtp_session.remote_host = rtp_dest[0]
+                self.permanent_rtp_session.remote_port = rtp_dest[1]
+                
+                logger.info(f"🎵 Sending {len(sip_audio)} bytes to {rtp_dest[0]}:{rtp_dest[1]} for call {call_id}")
                 await self.permanent_rtp_session.send_audio(sip_audio)
+                
+                # Restore the old destination (though it might be overwritten by incoming packets)
+                self.permanent_rtp_session.remote_host = old_host
+                self.permanent_rtp_session.remote_port = old_port
             else:
                 logger.warning("No permanent RTP session available for outgoing audio")
             
@@ -469,6 +552,39 @@ class WebSocketCallBridge:
         except Exception as e:
             logger.error(f"Error handling conversation end: {e}")
     
+    async def _handle_subtitle_message(self, websocket, data: Dict[str, Any]):
+        """Handle subtitle messages from AI platform (STT results)."""
+        try:
+            # Find the call_id for this websocket
+            call_id = None
+            for cid, ws in self.active_connections.items():
+                if ws == websocket:
+                    call_id = cid
+                    break
+            
+            if not call_id:
+                logger.warning("No call_id found for websocket connection receiving subtitle")
+                return
+            
+            text = data.get("text", "")
+            is_user = data.get("is_user", False)
+            conversation_id = data.get("conversation_id", "")
+            metrics = data.get("metrics", {})
+            
+            logger.info(f"📝 Subtitle for call {call_id}: '{text}' (user: {is_user})")
+            
+            # Log metrics if available
+            if metrics:
+                stt_time = metrics.get("stt_time", 0)
+                total_time = metrics.get("total_time", 0)
+                logger.debug(f"📊 STT metrics - processing: {stt_time}ms, total: {total_time}ms")
+            
+            # Note: This confirms the AI platform is receiving and processing audio (STT working)
+            # but it indicates that TTS (audio_data messages) is not configured or enabled
+            
+        except Exception as e:
+            logger.error(f"Error handling subtitle message: {e}")
+    
     def _register_call_events(self):
         """Register event handlers with call manager."""
         # Register for call state changes
@@ -511,6 +627,8 @@ class WebSocketCallBridge:
             call_id = call_session.call_id
             websocket = self.active_connections.get(call_id)
             
+            logger.info(f"Processing call completed event for call {call_id}")
+            
             if websocket:
                 await self._send_message(websocket, {
                     "type": "call_completed",
@@ -522,6 +640,10 @@ class WebSocketCallBridge:
                 
                 # Close WebSocket connection
                 await websocket.close()
+                logger.info(f"Closed WebSocket connection for completed call {call_id}")
+            
+            # Force cleanup of this call
+            await self._force_cleanup_call(call_id)
             
         except Exception as e:
             logger.error(f"Error handling call completed event: {e}")
@@ -606,6 +728,7 @@ class WebSocketCallBridge:
                             })
                         else:
                             logger.warning(f"Unknown message type from AI platform: {message_type}")
+                            logger.info(f"📋 Full message from AI platform: {data}")  # Log the complete message for debugging
                             
                     except json.JSONDecodeError as e:
                         logger.error(f"Invalid JSON from AI platform: {e}")
@@ -683,6 +806,23 @@ class WebSocketCallBridge:
             logger.error(f"Error handling SIP message: {e}")
             return {"success": False, "error": str(e)}
     
+    async def handle_call_hangup(self, call_id: str, reason: str = "normal") -> Dict[str, Any]:
+        """Handle call hangup from SIP server (BYE message)."""
+        try:
+            logger.info(f"Handling call hangup for {call_id}: {reason}")
+            
+            # Force cleanup of the call and WebSocket
+            await self._force_cleanup_call(call_id)
+            
+            # Also hangup via call manager to ensure proper state handling
+            await self.call_manager.hangup_call(call_id, reason)
+            
+            return {"success": True, "message": "Call hung up successfully"}
+            
+        except Exception as e:
+            logger.error(f"Error handling call hangup: {e}")
+            return {"success": False, "error": str(e)}
+    
     def get_statistics(self) -> Dict[str, Any]:
         """Get bridge statistics."""
         return {
@@ -692,7 +832,7 @@ class WebSocketCallBridge:
             "call_manager_stats": self.call_manager.get_statistics()
         }
     
-    async def _route_rtp_to_active_call(self, audio_data: bytes):
+    async def _route_rtp_to_active_call(self, audio_data: bytes, remote_addr: Tuple[str, int] = None):
         """Route RTP audio from permanent listener to active call."""
         try:
             # Find the first active WebSocket connection
@@ -703,6 +843,12 @@ class WebSocketCallBridge:
                 
             # For now, route to the first active connection
             call_id = next(iter(self.active_connections.keys()))
+            
+            # Store the RTP destination for this call
+            if remote_addr and call_id:
+                self.call_rtp_destinations[call_id] = remote_addr
+                logger.info(f"🎯 Updated RTP destination for call {call_id}: {remote_addr}")
+            
             logger.info(f"🎵 Routing RTP audio to call {call_id}")
             
             # Forward to WebSocket using existing method
@@ -715,3 +861,33 @@ class WebSocketCallBridge:
         """Set the permanent RTP session for outgoing audio."""
         self.permanent_rtp_session = rtp_session
         logger.info("🎵 Connected permanent RTP session to WebSocket bridge")
+    
+    async def _force_cleanup_call(self, call_id: str):
+        """Force cleanup of a specific call."""
+        try:
+            logger.info(f"Force cleaning up call {call_id}")
+            
+            # Remove from all tracking dictionaries
+            conversation_id = self.call_to_conversation.pop(call_id, None)
+            if conversation_id:
+                self.conversation_to_call.pop(conversation_id, None)
+            
+            # Close and remove WebSocket connection
+            websocket = self.active_connections.pop(call_id, None)
+            if websocket:
+                try:
+                    await websocket.close()
+                    logger.info(f"Forcefully closed WebSocket for call {call_id}")
+                except Exception as e:
+                    logger.warning(f"Error closing WebSocket for call {call_id}: {e}")
+            
+            # Clean up RTP destination tracking
+            self.call_rtp_destinations.pop(call_id, None)
+            
+            # Cleanup RTP session
+            await self.rtp_manager.destroy_session(call_id)
+            
+            logger.info(f"Completed force cleanup for call {call_id}")
+            
+        except Exception as e:
+            logger.error(f"Error in force cleanup for call {call_id}: {e}")
