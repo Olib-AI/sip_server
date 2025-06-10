@@ -58,7 +58,7 @@ class WebSocketCallBridge:
         self.buffer_ready: Dict[str, bool] = {}  # call_id -> buffer ready for transmission
         self.rtp_frame_size = 160  # 20ms at 8kHz = 160 bytes µ-law
         self.rtp_interval = 0.02  # 20ms
-        self.min_buffer_size = 640  # 80ms of buffer (4 frames) before starting transmission
+        self.min_buffer_size = 320  # 40ms of buffer (2 frames) before starting transmission - reduced for lower latency
         self.silence_frame = b'\x7F' * 160  # µ-law silence frame
         
         # Register call manager events
