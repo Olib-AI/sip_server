@@ -55,8 +55,11 @@ class WebSocketCallBridge:
         # Audio buffering for smooth RTP transmission
         self.audio_buffers: Dict[str, bytearray] = {}  # call_id -> audio buffer
         self.buffer_tasks: Dict[str, asyncio.Task] = {}  # call_id -> buffer task
+        self.buffer_ready: Dict[str, bool] = {}  # call_id -> buffer ready for transmission
         self.rtp_frame_size = 160  # 20ms at 8kHz = 160 bytes µ-law
         self.rtp_interval = 0.02  # 20ms
+        self.min_buffer_size = 640  # 80ms of buffer (4 frames) before starting transmission
+        self.silence_frame = b'\x7F' * 160  # µ-law silence frame
         
         # Register call manager events
         self._register_call_events()
@@ -437,23 +440,30 @@ class WebSocketCallBridge:
             
             logger.info(f"🎵 Received {len(pcm_data)} bytes of {codec} audio at {sample_rate}Hz from AI platform for call {call_id}")
             
-            # Convert sample rate if needed (AI platform sends 16kHz, SIP expects 8kHz)
-            if sample_rate == 16000:
-                # Simple downsampling: take every other sample
-                import numpy as np
-                pcm_16k = np.frombuffer(pcm_data, dtype=np.int16)
-                pcm_8k = pcm_16k[::2]  # Downsample 16kHz to 8kHz
-                pcm_data = pcm_8k.tobytes()
-                logger.debug(f"Downsampled from 16kHz to 8kHz: {len(pcm_data)} bytes")
-            
-            # Convert from PCM to PCMU for SIP
-            try:
-                import audioop
-                sip_audio = audioop.lin2ulaw(pcm_data, 2)  # Convert to μ-law
-                logger.debug(f"Converted PCM to PCMU: {len(sip_audio)} bytes")
-            except Exception as e:
-                logger.error(f"Audio format conversion failed: {e}")
-                sip_audio = pcm_data  # Fallback to raw data
+            # Handle different audio formats
+            if codec == "PCMU":
+                # Already µ-law encoded at 8kHz - use directly
+                sip_audio = pcm_data
+                logger.debug(f"Using µ-law audio directly: {len(sip_audio)} bytes")
+            else:
+                # PCM format - needs conversion
+                # Convert sample rate if needed (AI platform sends 16kHz, SIP expects 8kHz)
+                if sample_rate == 16000:
+                    # Simple downsampling: take every other sample
+                    import numpy as np
+                    pcm_16k = np.frombuffer(pcm_data, dtype=np.int16)
+                    pcm_8k = pcm_16k[::2]  # Downsample 16kHz to 8kHz
+                    pcm_data = pcm_8k.tobytes()
+                    logger.debug(f"Downsampled from 16kHz to 8kHz: {len(pcm_data)} bytes")
+                
+                # Convert from PCM to PCMU for SIP
+                try:
+                    import audioop
+                    sip_audio = audioop.lin2ulaw(pcm_data, 2)  # Convert to μ-law
+                    logger.debug(f"Converted PCM to PCMU: {len(sip_audio)} bytes")
+                except Exception as e:
+                    logger.error(f"Audio format conversion failed: {e}")
+                    sip_audio = pcm_data  # Fallback to raw data
             
             # Add to audio buffer for smooth RTP transmission
             await self._buffer_audio_for_rtp(call_id, sip_audio)
@@ -469,13 +479,21 @@ class WebSocketCallBridge:
             # Initialize buffer for this call if needed
             if call_id not in self.audio_buffers:
                 self.audio_buffers[call_id] = bytearray()
+                self.buffer_ready[call_id] = False
                 # Start buffering task for this call
                 self.buffer_tasks[call_id] = asyncio.create_task(self._rtp_transmission_task(call_id))
                 logger.info(f"🎵 Started audio buffering for call {call_id}")
             
             # Add audio data to buffer
-            self.audio_buffers[call_id].extend(audio_data)
-            logger.debug(f"🎵 Buffered {len(audio_data)} bytes for call {call_id}, total buffer: {len(self.audio_buffers[call_id])} bytes")
+            buffer = self.audio_buffers[call_id]
+            buffer.extend(audio_data)
+            
+            # Check if we have enough data to start transmission
+            if not self.buffer_ready[call_id] and len(buffer) >= self.min_buffer_size:
+                self.buffer_ready[call_id] = True
+                logger.info(f"🎵 Buffer ready for call {call_id}: {len(buffer)} bytes pre-buffered")
+            
+            logger.debug(f"🎵 Buffered {len(audio_data)} bytes for call {call_id}, total: {len(buffer)} bytes, ready: {self.buffer_ready[call_id]}")
             
         except Exception as e:
             logger.error(f"Error buffering audio for call {call_id}: {e}")
@@ -487,6 +505,11 @@ class WebSocketCallBridge:
             
             while call_id in self.audio_buffers:
                 try:
+                    # Wait until buffer is ready (pre-buffered) before starting transmission
+                    if not self.buffer_ready.get(call_id, False):
+                        await asyncio.sleep(0.01)  # Check every 10ms
+                        continue
+                    
                     # Check if we have enough data for an RTP frame
                     buffer = self.audio_buffers[call_id]
                     if len(buffer) >= self.rtp_frame_size:
@@ -496,6 +519,14 @@ class WebSocketCallBridge:
                         
                         # Send RTP frame
                         await self._send_rtp_frame(call_id, frame_data)
+                        
+                        # Check if buffer is getting low - log warning
+                        if len(buffer) < self.rtp_frame_size * 2:  # Less than 40ms buffered
+                            logger.debug(f"🎵 Buffer running low for call {call_id}: {len(buffer)} bytes remaining")
+                    else:
+                        # Buffer underrun - send silence to maintain timing
+                        logger.debug(f"🎵 Buffer underrun for call {call_id}, sending silence")
+                        await self._send_rtp_frame(call_id, self.silence_frame)
                     
                     # Wait for next RTP interval (20ms)
                     await asyncio.sleep(self.rtp_interval)
@@ -557,8 +588,9 @@ class WebSocketCallBridge:
                     pass
                 logger.info(f"🎵 Cancelled audio buffer task for call {call_id}")
             
-            # Clear the buffer
+            # Clear the buffer and ready state
             self.audio_buffers.pop(call_id, None)
+            self.buffer_ready.pop(call_id, None)
             logger.info(f"🎵 Cleaned up audio buffer for call {call_id}")
             
         except Exception as e:
