@@ -4,14 +4,13 @@ import websockets
 import websockets.exceptions
 import json
 import logging
-import socket
 import base64
-from typing import Dict, Any, Optional, Set, Callable, Tuple
+from typing import Dict, Any, Optional, Callable, Tuple
 from datetime import datetime, timezone
 import time
 import uuid
 
-from .call_manager import CallManager, CallSession, CallState, CallDirection
+from .call_manager import CallManager, CallSession, CallState
 from ..audio.rtp import RTPManager
 from ..audio.codecs import AudioProcessor
 from ..utils.config import get_config
@@ -52,6 +51,12 @@ class WebSocketCallBridge:
             "conversation_end": self._handle_conversation_end,
             "subtitle": self._handle_subtitle_message
         }
+        
+        # Audio buffering for smooth RTP transmission
+        self.audio_buffers: Dict[str, bytearray] = {}  # call_id -> audio buffer
+        self.buffer_tasks: Dict[str, asyncio.Task] = {}  # call_id -> buffer task
+        self.rtp_frame_size = 160  # 20ms at 8kHz = 160 bytes µ-law
+        self.rtp_interval = 0.02  # 20ms
         
         # Register call manager events
         self._register_call_events()
@@ -227,6 +232,9 @@ class WebSocketCallBridge:
             
             # Clean up RTP destination tracking
             self.call_rtp_destinations.pop(call_id, None)
+            
+            # Clean up audio buffering
+            await self._cleanup_audio_buffer(call_id)
             
             # Cleanup RTP session
             await self.rtp_manager.destroy_session(call_id)
@@ -447,13 +455,75 @@ class WebSocketCallBridge:
                 logger.error(f"Audio format conversion failed: {e}")
                 sip_audio = pcm_data  # Fallback to raw data
             
+            # Add to audio buffer for smooth RTP transmission
+            await self._buffer_audio_for_rtp(call_id, sip_audio)
+            
+        except Exception as e:
+            logger.error(f"Error handling audio_data message: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def _buffer_audio_for_rtp(self, call_id: str, audio_data: bytes):
+        """Buffer audio data and ensure smooth RTP transmission."""
+        try:
+            # Initialize buffer for this call if needed
+            if call_id not in self.audio_buffers:
+                self.audio_buffers[call_id] = bytearray()
+                # Start buffering task for this call
+                self.buffer_tasks[call_id] = asyncio.create_task(self._rtp_transmission_task(call_id))
+                logger.info(f"🎵 Started audio buffering for call {call_id}")
+            
+            # Add audio data to buffer
+            self.audio_buffers[call_id].extend(audio_data)
+            logger.debug(f"🎵 Buffered {len(audio_data)} bytes for call {call_id}, total buffer: {len(self.audio_buffers[call_id])} bytes")
+            
+        except Exception as e:
+            logger.error(f"Error buffering audio for call {call_id}: {e}")
+    
+    async def _rtp_transmission_task(self, call_id: str):
+        """Continuously send RTP packets at regular intervals from buffer."""
+        try:
+            logger.info(f"🎵 Starting RTP transmission task for call {call_id}")
+            
+            while call_id in self.audio_buffers:
+                try:
+                    # Check if we have enough data for an RTP frame
+                    buffer = self.audio_buffers[call_id]
+                    if len(buffer) >= self.rtp_frame_size:
+                        # Extract one RTP frame worth of data
+                        frame_data = bytes(buffer[:self.rtp_frame_size])
+                        del buffer[:self.rtp_frame_size]
+                        
+                        # Send RTP frame
+                        await self._send_rtp_frame(call_id, frame_data)
+                    
+                    # Wait for next RTP interval (20ms)
+                    await asyncio.sleep(self.rtp_interval)
+                    
+                except Exception as e:
+                    logger.error(f"Error in RTP transmission for call {call_id}: {e}")
+                    await asyncio.sleep(self.rtp_interval)  # Continue despite errors
+                    
+        except asyncio.CancelledError:
+            logger.info(f"🎵 RTP transmission task cancelled for call {call_id}")
+        except Exception as e:
+            logger.error(f"RTP transmission task error for call {call_id}: {e}")
+        finally:
+            # Clean up
+            self.audio_buffers.pop(call_id, None)
+            self.buffer_tasks.pop(call_id, None)
+            logger.info(f"🎵 RTP transmission task ended for call {call_id}")
+    
+    async def _send_rtp_frame(self, call_id: str, frame_data: bytes):
+        """Send a single RTP frame."""
+        try:
             # Get the RTP destination for this call
             rtp_dest = self.call_rtp_destinations.get(call_id)
             if not rtp_dest:
-                logger.warning(f"No RTP destination found for call {call_id}")
+                logger.debug(f"No RTP destination found for call {call_id}")
                 return
             
-            # Send via permanent RTP session to the correct destination
+            # Send via permanent RTP session
             if self.permanent_rtp_session:
                 # Temporarily update the permanent session's destination
                 old_host = self.permanent_rtp_session.remote_host
@@ -462,19 +532,37 @@ class WebSocketCallBridge:
                 self.permanent_rtp_session.remote_host = rtp_dest[0]
                 self.permanent_rtp_session.remote_port = rtp_dest[1]
                 
-                logger.info(f"🎵 Sending {len(sip_audio)} bytes to {rtp_dest[0]}:{rtp_dest[1]} for call {call_id}")
-                await self.permanent_rtp_session.send_audio(sip_audio)
+                await self.permanent_rtp_session.send_audio(frame_data)
+                logger.debug(f"🎵 Sent RTP frame: {len(frame_data)} bytes to {rtp_dest[0]}:{rtp_dest[1]}")
                 
-                # Restore the old destination (though it might be overwritten by incoming packets)
+                # Restore the old destination
                 self.permanent_rtp_session.remote_host = old_host
                 self.permanent_rtp_session.remote_port = old_port
             else:
                 logger.warning("No permanent RTP session available for outgoing audio")
+                
+        except Exception as e:
+            logger.error(f"Error sending RTP frame for call {call_id}: {e}")
+    
+    async def _cleanup_audio_buffer(self, call_id: str):
+        """Clean up audio buffer and stop transmission task for a call."""
+        try:
+            # Cancel the buffer task
+            task = self.buffer_tasks.pop(call_id, None)
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                logger.info(f"🎵 Cancelled audio buffer task for call {call_id}")
+            
+            # Clear the buffer
+            self.audio_buffers.pop(call_id, None)
+            logger.info(f"🎵 Cleaned up audio buffer for call {call_id}")
             
         except Exception as e:
-            logger.error(f"Error handling audio_data message: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Error cleaning up audio buffer for call {call_id}: {e}")
     
     async def _handle_call_control(self, websocket, data: Dict[str, Any]):
         """Handle call control messages from AI platform."""
@@ -883,6 +971,9 @@ class WebSocketCallBridge:
             
             # Clean up RTP destination tracking
             self.call_rtp_destinations.pop(call_id, None)
+            
+            # Clean up audio buffering
+            await self._cleanup_audio_buffer(call_id)
             
             # Cleanup RTP session
             await self.rtp_manager.destroy_session(call_id)
