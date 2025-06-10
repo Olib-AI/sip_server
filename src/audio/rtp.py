@@ -109,7 +109,7 @@ class RTPPacket:
 class RTPJitterBuffer:
     """Jitter buffer for RTP packet reordering and timing."""
     
-    def __init__(self, max_size: int = 50, target_delay_ms: int = 60):
+    def __init__(self, max_size: int = 50, target_delay_ms: int = 20):
         self.max_size = max_size
         self.target_delay_ms = target_delay_ms
         self.packets: Dict[int, RTPPacket] = {}
@@ -216,7 +216,7 @@ class RTPSession:
             raise
             
         # Set socket timeout instead of non-blocking for use with run_in_executor
-        self.socket.settimeout(0.1)  # 100ms timeout
+        self.socket.settimeout(0.02)  # 20ms timeout - match RTP frame interval
         self.running = True
         
         logger.info(f"RTP session started on port {self.local_port}")
@@ -318,18 +318,18 @@ class RTPSession:
                 except socket.error as e:
                     if e.errno == errno.EWOULDBLOCK or e.errno == errno.EAGAIN:
                         # No data available, continue
-                        await asyncio.sleep(0.001)
+                        await asyncio.sleep(0)  # Yield control
                         continue
                     else:
                         logger.error(f"Socket error in RTP receive: {e}")
-                        await asyncio.sleep(0.001)
+                        await asyncio.sleep(0)  # Yield control
                         continue
                         
             except Exception as e:
                 logger.error(f"Error receiving RTP packet: {e}")
                 import traceback
                 traceback.print_exc()
-                await asyncio.sleep(0.001)  # Small delay to prevent tight loop
+                await asyncio.sleep(0)  # Yield control
     
     async def _playout_loop(self) -> None:
         """Playout loop for jitter buffer."""
@@ -352,7 +352,7 @@ class RTPSession:
                         # Callback only expects audio data
                         self.receive_callback(packet.payload)
                 else:
-                    await asyncio.sleep(0.020)  # 20ms frame interval
+                    await asyncio.sleep(0.010)  # 10ms check interval
             except Exception as e:
                 logger.error(f"Error in playout loop: {e}")
                 await asyncio.sleep(0.020)

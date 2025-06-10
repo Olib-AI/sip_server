@@ -60,7 +60,7 @@ class WebSocketCallBridge:
         self.buffer_ready: Dict[str, bool] = {}  # call_id -> buffer ready for transmission
         self.rtp_frame_size = 160  # 20ms at 8kHz = 160 bytes µ-law
         self.rtp_interval = 0.02  # 20ms
-        self.min_buffer_size = 320  # 40ms of buffer (2 frames) before starting transmission - reduced for lower latency
+        self.min_buffer_size = 160  # 20ms of buffer (1 frame) before starting transmission - reduced for lower latency
         self.silence_frame = b'\x7F' * 160  # µ-law silence frame
         
         # Register call manager events
@@ -555,7 +555,7 @@ class WebSocketCallBridge:
                 try:
                     # Wait until buffer is ready (pre-buffered) before starting transmission
                     if not self.buffer_ready.get(call_id, False):
-                        await asyncio.sleep(0.01)  # Check every 10ms
+                        await asyncio.sleep(0.005)  # Check every 5ms
                         continue
                     
                     # Check if we have enough data for an RTP frame

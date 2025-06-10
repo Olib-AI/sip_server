@@ -94,10 +94,10 @@ class RTPproxy:
                 except socket.error as e:
                     if e.errno not in (socket.EAGAIN, socket.EWOULDBLOCK):
                         logger.error(f"Socket error: {e}")
-                    await asyncio.sleep(0.001)
+                    pass  # Remove sleep - socket is non-blocking
                 except Exception as e:
                     logger.error(f"Error processing command: {e}")
-                    await asyncio.sleep(0.001)
+                    pass  # Remove sleep
                     
         except Exception as e:
             logger.error(f"Control server error: {e}")
@@ -311,7 +311,7 @@ class RTPproxy:
                     if session.local_port in self.socket_pairs:
                         await self.process_session_packets(session)
                 
-                await asyncio.sleep(0.001)  # Small delay to prevent CPU spinning
+                await asyncio.sleep(0)  # Yield control to other tasks
                 
             except Exception as e:
                 logger.error(f"Error processing RTP packets: {e}")
