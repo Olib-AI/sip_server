@@ -30,6 +30,7 @@ class CallInitiate(BaseModel):
     headers: Optional[Dict[str, str]] = Field(default={}, description="Custom SIP headers")
     webhook_url: Optional[str] = Field(None, description="Webhook URL for call events")
     timeout: Optional[int] = Field(60, description="Call timeout in seconds")
+    custom_data: Optional[Dict[str, Any]] = Field(default={}, description="Custom data for AI chatbot integration")
     
     @field_validator('from_number', 'to_number')
     @classmethod

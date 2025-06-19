@@ -38,7 +38,8 @@ async def initiate_call(
             from_number=call_data.from_number,
             to_number=call_data.to_number,
             headers=call_data.headers,
-            webhook_url=call_data.webhook_url
+            webhook_url=call_data.webhook_url,
+            custom_data=getattr(call_data, 'custom_data', None)
         )
         
         # Store call record in database

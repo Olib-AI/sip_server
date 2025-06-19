@@ -875,19 +875,33 @@ class WebSocketCallBridge:
             # Extract call information
             from_user = call_data.get("from_number", call_data.get("from", "unknown"))
             to_user = call_data.get("to_number", call_data.get("to", "unknown"))
+            direction = call_data.get("direction", "incoming")
+            
+            # For outgoing calls, use the webhook URL if provided
+            ai_websocket_url = self.ai_websocket_url
+            if direction == "outgoing" and call_data.get("custom_data", {}).get("webhook_url"):
+                ai_websocket_url = call_data["custom_data"]["webhook_url"]
+                logger.info(f"🔗 Using webhook URL for outgoing call: {ai_websocket_url}")
             
             # Create authentication data for WebSocket headers
             auth_message = self.authenticator.create_sip_auth_message(
                 call_id=call_id,
                 from_number=from_user,
                 to_number=to_user,
-                direction="incoming",
+                direction=direction,
                 codec="PCMU",
                 sample_rate=8000
             )
             
+            # For outgoing calls, add the AI headers and mark as outgoing
+            if direction == "outgoing":
+                ai_headers = call_data.get("headers", {})
+                if ai_headers:
+                    auth_message["headers"] = ai_headers
+                auth_message["headers"]["X-Outgoing-Call"] = "true"
+            
             # Connect to AI platform WebSocket
-            async with websockets.connect(self.ai_websocket_url) as websocket:
+            async with websockets.connect(ai_websocket_url) as websocket:
                 logger.info(f"✅ Connected to AI platform for call {call_id}")
                 
                 # Store the connection

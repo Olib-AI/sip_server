@@ -53,7 +53,8 @@ class SIPClient:
         from_number: str,
         to_number: str,
         headers: Dict[str, str] = None,
-        webhook_url: str = None
+        webhook_url: str = None,
+        custom_data: Dict[str, Any] = None
     ) -> CallInfo:
         """Initiate an outgoing call."""
         try:
@@ -66,6 +67,12 @@ class SIPClient:
             sip_headers["X-Call-ID"] = call_id
             if webhook_url:
                 sip_headers["X-Webhook-URL"] = webhook_url
+            
+            # Add custom data as headers for AI chatbot integration
+            if custom_data:
+                for key, value in custom_data.items():
+                    if value is not None:
+                        sip_headers[f"X-{key.replace('_', '-').title()}"] = str(value)
                 
             # Make RPC call to initiate call
             params = [

@@ -682,6 +682,16 @@ class CallManager:
             self.total_calls += 1
             self.number_call_counts[from_number] += 1
             
+            # Store webhook URL for later connection
+            webhook_url = call_data.get("webhook_url")
+            if webhook_url:
+                call_session.custom_data["webhook_url"] = webhook_url
+                call_session.custom_data["is_outgoing"] = True
+                # Store headers for authentication when connecting back
+                headers = call_data.get("headers", {})
+                if headers:
+                    call_session.custom_data["ai_headers"] = headers
+            
             # Emit event
             await self._emit_event("call_initiated", call_session)
             
@@ -730,6 +740,15 @@ class CallManager:
         
         # Emit state change event
         await self._emit_event("call_state_changed", call_session, old_state, new_state)
+        
+        # Handle outgoing call connection to AI platform when answered
+        if (new_state == CallState.CONNECTED and 
+            call_session.direction == CallDirection.OUTBOUND and
+            call_session.custom_data.get("webhook_url") and
+            call_session.custom_data.get("is_outgoing")):
+            
+            # Connect to AI platform for outgoing call
+            await self._connect_outgoing_call_to_ai_platform(call_session)
         
         # Handle terminal states
         if new_state in [CallState.COMPLETED, CallState.FAILED, CallState.CANCELLED]:
@@ -1203,3 +1222,49 @@ class CallManager:
         except Exception as e:
             logger.error(f"Error loading call manager configuration: {e}")
             raise
+    
+    async def _connect_outgoing_call_to_ai_platform(self, call_session: CallSession):
+        """Connect outgoing call to AI platform when answered."""
+        try:
+            webhook_url = call_session.custom_data.get("webhook_url")
+            if not webhook_url:
+                logger.error(f"No webhook URL for outgoing call {call_session.call_id}")
+                return
+            
+            # Convert HTTP(S) URL to WebSocket URL if needed
+            if webhook_url.startswith("http://"):
+                webhook_url = webhook_url.replace("http://", "ws://")
+            elif webhook_url.startswith("https://"):
+                webhook_url = webhook_url.replace("https://", "wss://")
+            
+            logger.info(f"Connecting outgoing call {call_session.call_id} to AI platform: {webhook_url}")
+            
+            # Get AI integration headers from custom_data
+            ai_headers = call_session.custom_data.get("ai_headers", {})
+            
+            # Prepare call data for AI platform connection
+            call_data = {
+                "call_id": call_session.call_id,
+                "sip_call_id": call_session.call_id,
+                "from_number": call_session.caller.number,
+                "to_number": call_session.callee.number,
+                "direction": "outgoing",
+                "codec": call_session.codec,
+                "sample_rate": 8000,
+                "headers": ai_headers,
+                "custom_data": call_session.custom_data
+            }
+            
+            # Get the AI WebSocket manager and connect
+            if self.ai_websocket_manager:
+                # Use existing notify_incoming_call but with outgoing data
+                # This will trigger the WebSocket connection to AI platform
+                await self.ai_websocket_manager.notify_incoming_call(call_data)
+                logger.info(f"Successfully initiated AI platform connection for outgoing call {call_session.call_id}")
+            else:
+                logger.error(f"No AI WebSocket manager available for outgoing call {call_session.call_id}")
+                
+        except Exception as e:
+            logger.error(f"Error connecting outgoing call {call_session.call_id} to AI platform: {e}")
+            import traceback
+            traceback.print_exc()
