@@ -320,10 +320,14 @@ class RTPSession:
                         # No data available, continue
                         await asyncio.sleep(0)  # Yield control
                         continue
+                    elif e.errno == errno.EBADF:
+                        # Bad file descriptor - socket was closed, stop the loop
+                        logger.info(f"Socket closed during RTP receive on port {self.local_port}")
+                        break
                     else:
                         logger.error(f"Socket error in RTP receive: {e}")
-                        await asyncio.sleep(0)  # Yield control
-                        continue
+                        # For other socket errors, stop the loop to prevent continuous errors
+                        break
                         
             except Exception as e:
                 logger.error(f"Error receiving RTP packet: {e}")

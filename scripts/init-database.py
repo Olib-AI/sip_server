@@ -80,7 +80,7 @@ async def create_database_schema(database_url: str):
                 from_uri VARCHAR(128) NOT NULL,
                 from_tag VARCHAR(64) NOT NULL,
                 to_uri VARCHAR(128) NOT NULL,
-                to_tag VARCHAR(64) NOT NULL,
+                to_tag VARCHAR(64) DEFAULT '',
                 caller_cseq VARCHAR(20) NOT NULL,
                 callee_cseq VARCHAR(20) NOT NULL,
                 caller_route_set TEXT,
@@ -97,6 +97,50 @@ async def create_database_schema(database_url: str):
                 toroute_name VARCHAR(32),
                 req_uri VARCHAR(128) NOT NULL,
                 xdata TEXT
+            );
+        """)
+        
+        # Accounting table for call detail records (Kamailio acc module)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS acc (
+                id SERIAL PRIMARY KEY NOT NULL,
+                method VARCHAR(16) DEFAULT '' NOT NULL,
+                from_tag VARCHAR(64) DEFAULT '' NOT NULL,
+                to_tag VARCHAR(64) DEFAULT '' NOT NULL,
+                callid VARCHAR(255) DEFAULT '' NOT NULL,
+                sip_code VARCHAR(3) DEFAULT '' NOT NULL,
+                sip_reason VARCHAR(32) DEFAULT '' NOT NULL,
+                time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                from_uri VARCHAR(128) DEFAULT '' NOT NULL,
+                to_uri VARCHAR(128) DEFAULT '' NOT NULL,
+                src_user VARCHAR(64) DEFAULT '' NOT NULL,
+                src_domain VARCHAR(128) DEFAULT '' NOT NULL,
+                dst_user VARCHAR(64) DEFAULT '' NOT NULL,
+                dst_domain VARCHAR(128) DEFAULT '' NOT NULL,
+                src_ip VARCHAR(64) DEFAULT '' NOT NULL,
+                dst_ip VARCHAR(64) DEFAULT '' NOT NULL
+            );
+        """)
+        
+        # Missed calls table for acc module  
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS missed_calls (
+                id SERIAL PRIMARY KEY NOT NULL,
+                method VARCHAR(16) DEFAULT '' NOT NULL,
+                from_tag VARCHAR(64) DEFAULT '' NOT NULL,
+                to_tag VARCHAR(64) DEFAULT '' NOT NULL,
+                callid VARCHAR(255) DEFAULT '' NOT NULL,
+                sip_code VARCHAR(3) DEFAULT '' NOT NULL,
+                sip_reason VARCHAR(32) DEFAULT '' NOT NULL,
+                time TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                from_uri VARCHAR(128) DEFAULT '' NOT NULL,
+                to_uri VARCHAR(128) DEFAULT '' NOT NULL,
+                src_user VARCHAR(64) DEFAULT '' NOT NULL,
+                src_domain VARCHAR(128) DEFAULT '' NOT NULL,
+                dst_user VARCHAR(64) DEFAULT '' NOT NULL,
+                dst_domain VARCHAR(128) DEFAULT '' NOT NULL,
+                src_ip VARCHAR(64) DEFAULT '' NOT NULL,
+                dst_ip VARCHAR(64) DEFAULT '' NOT NULL
             );
         """)
         
@@ -264,6 +308,10 @@ async def create_database_schema(database_url: str):
         await conn.execute("CREATE INDEX IF NOT EXISTS location_account_contact_idx ON location (username, domain, contact);")
         await conn.execute("CREATE INDEX IF NOT EXISTS location_expires_idx ON location (expires);")
         await conn.execute("CREATE INDEX IF NOT EXISTS dialog_hash_idx ON dialog (hash_entry, hash_id);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS acc_callid_idx ON acc (callid);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS acc_time_idx ON acc (time);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS missed_calls_callid_idx ON missed_calls (callid);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS missed_calls_time_idx ON missed_calls (time);")
         await conn.execute("CREATE INDEX IF NOT EXISTS call_records_time_idx ON call_records (start_time, end_time);")
         await conn.execute("CREATE INDEX IF NOT EXISTS call_records_numbers_idx ON call_records (from_number, to_number);")
         await conn.execute("CREATE INDEX IF NOT EXISTS sms_records_time_idx ON sms_records (created_at);")
@@ -278,6 +326,8 @@ async def create_database_schema(database_url: str):
             ('location', 9),
             ('dialog', 7),
             ('dialog_vars', 1),
+            ('acc', 5),
+            ('missed_calls', 4),
             ('dispatcher', 4),
             ('address', 6),
             ('trusted', 6),
