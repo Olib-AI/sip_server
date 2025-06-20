@@ -279,13 +279,27 @@ class WebSocketCallBridge:
             local_port = self.rtp_manager.allocate_port()
             
             # Create RTP session for this specific call
+            # Set remote host to the SIP client's IP immediately so AI platform audio can flow
+            remote_host = "127.0.0.1"  # Default for local testing
+            remote_port = 5004  # Default RTP port for SIP clients
+            
+            # Try to get the actual client IP from call context if available
+            if hasattr(self, 'calls') and call_id in self.calls:
+                call_info = self.calls[call_id]
+                if call_info.get("remote_ip") and call_info["remote_ip"] != "unknown":
+                    remote_host = call_info["remote_ip"]
+            
             rtp_session = RTPSession(
                 local_port=local_port,
-                remote_host="",  # Will be set when we receive RTP
-                remote_port=0,  # Will be set when we receive RTP
+                remote_host=remote_host,
+                remote_port=remote_port,
                 payload_type=0,  # PCMU
                 codec="PCMU"
             )
+            
+            # Set the RTP destination immediately for outgoing audio
+            self.call_rtp_destinations[call_id] = (remote_host, remote_port)
+            logger.info(f"🎯 Call {call_id}: Pre-configured RTP destination to {remote_host}:{remote_port}")
             
             # Set up callback to route audio to this specific call's WebSocket
             def call_audio_callback(audio_data: bytes, remote_addr=None):
@@ -883,6 +897,8 @@ class WebSocketCallBridge:
                 ai_websocket_url = call_data["custom_data"]["webhook_url"]
                 logger.info(f"🔗 Using webhook URL for outgoing call: {ai_websocket_url}")
             
+            logger.info(f"🔗 Connecting to AI platform: {ai_websocket_url} (direction: {direction})")
+            
             # Create authentication data for WebSocket headers
             auth_message = self.authenticator.create_sip_auth_message(
                 call_id=call_id,
@@ -898,6 +914,8 @@ class WebSocketCallBridge:
                 ai_headers = call_data.get("headers", {})
                 if ai_headers:
                     auth_message["headers"] = ai_headers
+                else:
+                    auth_message["headers"] = {}
                 auth_message["headers"]["X-Outgoing-Call"] = "true"
             
             # Connect to AI platform WebSocket
