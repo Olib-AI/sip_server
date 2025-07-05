@@ -109,7 +109,7 @@ class RTPPacket:
 class RTPJitterBuffer:
     """Jitter buffer for RTP packet reordering and timing."""
     
-    def __init__(self, max_size: int = 50, target_delay_ms: int = 20):
+    def __init__(self, max_size: int = 20, target_delay_ms: int = 5):
         self.max_size = max_size
         self.target_delay_ms = target_delay_ms
         self.packets: Dict[int, RTPPacket] = {}
@@ -216,7 +216,7 @@ class RTPSession:
             raise
             
         # Set socket timeout instead of non-blocking for use with run_in_executor
-        self.socket.settimeout(0.02)  # 20ms timeout - match RTP frame interval
+        self.socket.settimeout(0.005)  # 5ms timeout for lower latency
         self.running = True
         
         logger.info(f"RTP session started on port {self.local_port}")
@@ -356,7 +356,7 @@ class RTPSession:
                         # Callback only expects audio data
                         self.receive_callback(packet.payload)
                 else:
-                    await asyncio.sleep(0.010)  # 10ms check interval
+                    await asyncio.sleep(0.002)  # 2ms check interval for lower latency
             except Exception as e:
                 logger.error(f"Error in playout loop: {e}")
                 await asyncio.sleep(0.020)

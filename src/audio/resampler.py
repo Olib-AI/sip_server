@@ -41,15 +41,30 @@ class AudioResampler:
             # Calculate resampling ratio
             ratio = to_rate / from_rate
             
-            # Use scipy's resample for high-quality resampling
-            num_samples = int(len(audio_array) * ratio)
-            resampled = signal.resample(audio_array, num_samples)
+            # For common 8kHz to 16kHz (2x upsampling), use fast linear interpolation
+            if from_rate == 8000 and to_rate == 16000:
+                # Fast 2x upsampling with linear interpolation
+                upsampled = np.zeros(len(audio_array) * 2, dtype=dtype)
+                upsampled[::2] = audio_array
+                upsampled[1::2] = audio_array  # Simple duplication for speed
+                return upsampled.tobytes()
             
-            # Convert back to int16
-            resampled = np.clip(resampled, -32768, 32767).astype(dtype)
+            # For 16kHz to 8kHz (2x downsampling), use simple decimation
+            elif from_rate == 16000 and to_rate == 8000:
+                # Fast 2x downsampling by taking every other sample
+                downsampled = audio_array[::2]
+                return downsampled.tobytes()
             
-            # Convert back to bytes
-            return resampled.tobytes()
+            # For other ratios, use scipy's resample (slower but high quality)
+            else:
+                num_samples = int(len(audio_array) * ratio)
+                resampled = signal.resample(audio_array, num_samples)
+                
+                # Convert back to int16
+                resampled = np.clip(resampled, -32768, 32767).astype(dtype)
+                
+                # Convert back to bytes
+                return resampled.tobytes()
             
         except Exception as e:
             logger.error(f"Error resampling audio: {e}")

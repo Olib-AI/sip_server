@@ -76,7 +76,7 @@ class CallInfo:
 class AudioBuffer:
     """Advanced audio buffering with jitter control."""
     
-    def __init__(self, max_frames: int = 10, target_delay_ms: int = 20):
+    def __init__(self, max_frames: int = 3, target_delay_ms: int = 5):
         self.max_frames = max_frames
         self.target_delay_ms = target_delay_ms
         self.frames = deque(maxlen=max_frames)

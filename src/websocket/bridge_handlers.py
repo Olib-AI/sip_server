@@ -207,17 +207,8 @@ class BridgeHandlers:
                 from ..audio.resampler import AudioResampler
                 resampled_data = AudioResampler.resample_audio(pcm_data, 8000, 16000)
             
-            # Add to buffer for jitter control
-            buffer = self.audio_buffers.get(call_id)
-            if buffer:
-                buffer.add_frame(resampled_data)
-                
-                # Send buffered frames to AI
-                while True:
-                    frame = buffer.get_frame()
-                    if not frame:
-                        break
-                    await self.connection_manager.send_audio(call_id, frame)
+            # Send audio immediately for lowest latency
+            await self.connection_manager.send_audio(call_id, resampled_data)
                     
             # Update statistics
             stats = self.call_statistics.get(call_id)
